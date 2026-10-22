@@ -9,8 +9,29 @@ let ws, myId, meta = { FACTIONS: {} }, lobby = null, S = null, stateAt = 0;
 const ui = {
   faction: localStorage.getItem('faction') || 'china',
   tab: 'base', selected: null, mode: null, sendFrom: null, sendTo: null,
-  inputs: {}, chat: [], seenLog: 0, seenChat: 0,
+  inputs: {}, chat: [], seenLog: 0, seenChat: 0, sheet: false,
 };
+const isMobile = () => matchMedia('(max-width: 899px)').matches;
+
+// ---------------- theme ----------------
+const PALETTES = {
+  dark: { ocean: '#0b2131', sea: '#0f1a24', land: '#1f2d24', coast: '#3d5546', grid: '#ffffff0a', neutral: '#3a4450', ring: '#0d1117', label: '#ffffff', halo: '#000000cc', strat: '#ffd54f', name: '#cfd8dc', select: '#ffffff', meta: '#0d1117' },
+  light: { ocean: '#a9d0e6', sea: '#cfe3ef', land: '#ece6d4', coast: '#b8ab88', grid: '#0000000d', neutral: '#8c96a0', ring: '#ffffff', label: '#1f2328', halo: '#ffffffdd', strat: '#9a6700', name: '#3d4650', select: '#1f2328', meta: '#ffffff' },
+};
+let PAL = PALETTES.dark;
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  PAL = PALETTES[t] || PALETTES.dark;
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', PAL.meta);
+  for (const b of document.querySelectorAll('[data-theme-toggle]')) b.textContent = t === 'light' ? '🌙' : '☀️';
+}
+applyTheme(document.documentElement.dataset.theme || 'dark');
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('[data-theme-toggle]')) return;
+  const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  try { localStorage.setItem('theme', t); } catch {}
+  applyTheme(t);
+});
 
 // ---------------- connection ----------------
 function connect(onOpen) {
@@ -35,9 +56,10 @@ function handle(m) {
     lobby = m; if (!S) { show('lobby'); renderLobby(); }
   } else if (m.type === 'started') {
     show('game');
+    maybeTutorial();
   } else if (m.type === 'state') {
     S = m.state; stateAt = performance.now();
-    if ($('#game').classList.contains('hidden')) show('game');
+    if ($('#game').classList.contains('hidden')) { show('game'); maybeTutorial(); }
     renderGame();
   } else if (m.type === 'chat') {
     ui.chat.push(m); if (ui.chat.length > 100) ui.chat.shift();
@@ -52,8 +74,8 @@ function show(id) {
   for (const s of document.querySelectorAll('.screen')) s.classList.toggle('hidden', s.id !== id);
   if (id === 'game') resize();
 }
-function toast(t) {
-  const el = $('#toast'); el.textContent = t; el.classList.add('show');
+function toast(t, ok) {
+  const el = $('#toast'); el.textContent = t; el.classList.add('show'); el.classList.toggle('ok', !!ok);
   clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('show'), 2500);
 }
 
@@ -142,11 +164,99 @@ const unitsLine = (u) => {
 const total = (u) => Object.values(u).reduce((a, b) => a + b, 0);
 
 // ---------------- game render ----------------
+const fmtK = (n) => Math.abs(n) >= 100000 ? Math.round(n / 1000) + 'k' : Math.abs(n) >= 10000 ? (n / 1000).toFixed(1) + 'k' : fmt(n);
+const teamVp = (team) => S.players.filter((p) => p.team === team).reduce((a, p) => a + p.vp, 0);
+const nearest = (list) => { const c = S.terr[S.me.capital]; return list.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0]; };
+
+// how the player is doing against the win condition
+function goalInfo() {
+  const myTeam = me().team, mine = teamVp(myTeam);
+  const strat = S.terr.filter((t) => t.type === 'strategic');
+  const held = strat.filter((t) => t.owner && player(t.owner).team === myTeam).length;
+  const teams = {};
+  for (const p of S.players) (teams[p.team] = teams[p.team] || []).push(p);
+  let lead = null;
+  for (const ps of Object.values(teams)) {
+    const vp = ps.reduce((a, p) => a + p.vp, 0);
+    if (!lead || vp > lead.vp) lead = { vp, ps };
+  }
+  const rate = held * 10; // VP per game-minute
+  const eta = rate ? ((S.vpTarget - mine) / rate) * 60 / S.speed : null; // real seconds
+  const iLead = lead.ps.some((p) => p.team === myTeam);
+  return { mine, held, total: strat.length, lead, iLead, eta };
+}
+
+// one clear suggestion for what to do next
+function nextTip() {
+  const m = S.me, cap = S.terr[S.me.capital];
+  const incoming = S.movements.filter((x) => x.hostile && x.mission === 'attack' && S.terr[x.to].owner && friendly(S.terr[x.to].owner));
+  if (incoming.length) return null; // the red alert already covers it
+  if (S.winner) return null;
+  const capUnits = total(cap.units || {});
+  const atk = ['inf', 'tank', 'jet'].reduce((a, k) => a + (cap.units?.[k] || 0), 0);
+  if (m.income.food - m.upkeep < 0 && m.res.food < 800) return { text: '🌾 الغذاء ينفد! اشترِ غذاء من السوق أو احتل مزرعة.', label: 'السوق', go: () => setTab('trade') };
+  if (capUnits < 15 && !m.queue.length) return { text: 'ابدأ بتجنيد جيش: مشاة ودبابات.', label: 'جنّد', go: () => setTab('train') };
+  if (crisisPending()) return { text: '🔥 أزمة دولية! اختر موقفك واكسب نقاط أو علاقات.', label: 'العالم', go: () => setTab('world') };
+  if (votePending()) return { text: '🏛️ مجلس الأمن يصوّت على عقوبات. صوّت الآن.', label: 'صوّت', go: () => setTab('world') };
+  if (S.proposalsIn.length) return { text: '🤝 عندك عرض تحالف بانتظار ردك.', label: 'شوف', go: () => setTab('dip') };
+  const g = goalInfo();
+  const freeStrat = S.terr.filter((t) => t.type === 'strategic' && !friendly(t.owner));
+  if (atk >= 25 && freeStrat.length && (g.held === 0 || atk >= 60)) {
+    const t = nearest(freeStrat);
+    return { text: `⭐ احتل ${t.name ? esc(t.name) : 'مركز القيادة'} لتجمع نقاط النصر.`, label: 'هاجم', go: () => { selectTerr(t.id); focusTerr(t.id); } };
+  }
+  if (atk >= 20) {
+    const eco = S.terr.filter((t) => !t.owner && ['city', 'oil', 'mine', 'farm'].includes(t.type));
+    if (eco.length) {
+      const t = nearest(eco);
+      return { text: `${meta.TERR[t.type].icon} احتل ${t.name ? esc(t.name) : meta.TERR[t.type].name} القريب لزيادة دخلك.`, label: 'هاجم', go: () => { selectTerr(t.id); focusTerr(t.id); } };
+    }
+  }
+  if (!m.upgrade) {
+    const B = meta.BUILDINGS, k = Object.keys(B).find((x) => m.buildings[x] < 10 && canAfford(m.upgradeCosts[x].cost));
+    if (k) return { text: `🔨 طوّر ${B[k].name} لتقوية قاعدتك.`, label: 'طوّر', go: () => setTab('base') };
+  }
+  if (!m.queue.length) return { text: 'المصنع متوقف. جنّد وحدات أكثر.', label: 'جنّد', go: () => setTab('train') };
+  if (!m.research && Object.keys(meta.TECHS).some((k) => !m.techs[k])) return { text: '🔬 ابدأ بحثاً جديداً يفتح أسلحة أقوى.', label: 'أبحاث', go: () => setTab('tech') };
+  return null;
+}
+const crisisPending = () => S.crisis && (S.crisis.a === myId || S.crisis.b === myId ? !S.crisis.party[myId] : !S.crisis.mine);
+const votePending = () => S.vote && S.vote.team !== me().team && !S.vote.mine;
+
 function renderGame() {
   const r = S.me.res, inc = { ...S.me.income, food: S.me.income.food - S.me.upkeep };
+  const mob = isMobile(), f = mob ? fmtK : fmt;
   $('#resBar').innerHTML = Object.keys(RES_ICONS).map((k) =>
-    `<span class="res" title="${RES_NAMES[k]}">${RES_ICONS[k]} <b>${fmt(r[k])}</b> <small class="${inc[k] < 0 ? 'neg' : ''}">${inc[k] < 0 ? '' : '+'}${fmt(inc[k])}/د</small></span>`).join('') +
-    `<span class="res" title="الجيش / السكان · إنتاجية المدنيين">👥 <b>${fmt(S.me.mil)}/${fmt(S.me.pop)}</b> <small class="${S.me.productivity < 0.7 ? 'neg' : ''}">إنتاجية ${Math.round(S.me.productivity * 100)}٪</small></span>`;
+    `<span class="res" title="${RES_NAMES[k]}">${RES_ICONS[k]} <b>${f(r[k])}</b> <small class="${inc[k] < 0 ? 'neg' : ''}">${inc[k] < 0 ? '' : '+'}${f(inc[k])}${mob ? '' : '/د'}</small></span>`).join('') +
+    `<span class="res" title="الجيش / السكان · إنتاجية المدنيين">👥 <b>${f(S.me.mil)}/${f(S.me.pop)}</b> <small class="${S.me.productivity < 0.7 ? 'neg' : ''}">${mob ? '' : 'إنتاجية '}${Math.round(S.me.productivity * 100)}٪</small></span>`;
+
+  // objective card: always visible, answers "how do I win?"
+  const g = goalInfo();
+  const pct = Math.min(100, (100 * g.mine) / S.vpTarget), lpct = Math.min(100, (100 * g.lead.vp) / S.vpTarget);
+  const leadName = g.lead.vp < 1 ? 'لا أحد عنده نقاط بعد' : g.iLead ? 'أنت المتصدر 👑' : 'المتصدر: ' + g.lead.ps.map((p) => meta.FACTIONS[p.faction].flag + ' ' + esc(p.name)).join(' + ') + ` ⭐${fmt(g.lead.vp)}`;
+  const etaTxt = g.held ? `تملك ${g.held}/${g.total} مراكز ⭐` + (g.eta != null ? ` · تفوز خلال ~${fmtTime(Math.max(0, g.eta))} لو حافظت عليها` : '')
+    : `لا تملك أي مركز ⭐ — احتل واحداً لتبدأ جمع النقاط`;
+  const prot = S.protection > 0 ? ` · 🛡️ حماية ${fmtTime(S.protection)}` : '';
+  $('#goalCard').innerHTML = `<div class="g1"><span>🎯 فريقك ⭐ ${fmt(g.mine)} / ${fmt(S.vpTarget)}</span><span class="tm">⏱️ ${fmtTime(S.remaining)}</span></div>
+    <div class="bar gbar">${g.iLead ? '' : `<i class="lead" style="width:${lpct}%"></i>`}<i style="width:${pct}%;position:relative"></i></div>
+    <div class="g2">${leadName}${prot}<br>${etaTxt}</div>`;
+
+  // incoming attack alert
+  const incoming = S.movements.filter((x) => x.hostile && x.mission === 'attack' && S.terr[x.to].owner && friendly(S.terr[x.to].owner)).sort((a, b) => a.eta - b.eta);
+  const al = $('#alertPill');
+  if (incoming.length) {
+    const x = incoming[0];
+    al.innerHTML = `⚠️ هجوم قادم على ${terrName(S.terr[x.to])} من ${esc(player(x.owner).name)} خلال ${fmtTime(x.eta)}${incoming.length > 1 ? ` (+${incoming.length - 1})` : ''} — عزّز دفاعك!`;
+  }
+  al.classList.toggle('hidden', !incoming.length);
+
+  const tip = nextTip(), tc = $('#tipCard');
+  if (tip && !ui.mode) {
+    tc.innerHTML = `<span>💡 ${tip.text}</span><b class="go">${tip.label} ←</b>`;
+    tc.onclick = tip.go;
+  }
+  tc.classList.toggle('hidden', !tip || !!ui.mode);
+
   const bars = [];
   if (S.event) bars.push(`${S.event.name}: ${S.event.desc} <small>(${fmtTime(S.event.remaining)})</small>`);
   if (S.crisis) bars.push(`🔥 ${S.crisis.title}: ${esc(player(S.crisis.a).name)} ضد ${esc(player(S.crisis.b).name)} <small>(${fmtTime(S.crisis.remaining)})</small>`);
@@ -155,25 +265,17 @@ function renderGame() {
   for (const pr of S.projects) bars.push(`☢️ ${esc(pr.name)}: ${pr.ready ? 'السلاح النهائي جاهز!' : 'سلاح نهائي ' + Math.round(pr.progress * 100) + '٪'}`);
   $('#eventBar').innerHTML = bars.map((b) => `<div>${b}</div>`).join('');
   $('#eventBar').classList.toggle('hidden', !bars.length);
-  const pend = S.proposalsIn.length > 0;
-  $('#dipDot').classList.toggle('hidden', !pend);
-  const crisisPending = S.crisis && (S.crisis.a === myId || S.crisis.b === myId ? !S.crisis.party[myId] : !S.crisis.mine);
-  const votePending = S.vote && S.vote.team !== me().team && !S.vote.mine;
-  $('#worldDot').classList.toggle('hidden', !(crisisPending || votePending));
+
+  const dip = S.proposalsIn.length > 0, world = !!(crisisPending() || votePending());
+  $('#dipDot').classList.toggle('hidden', !dip);
+  $('#worldDot').classList.toggle('hidden', !world);
+  $('#worldDot2').classList.toggle('hidden', !world);
   if (!ui.mapKey || ui.mapKey !== S.map.W + 'x' + S.map.H) {
     ui.mapKey = S.map.W + 'x' + S.map.H;
     resize();
     // the world map is wide: on small screens start zoomed in on the player's capital
-    if (S.map.world && canvas.getBoundingClientRect().width < 800) {
-      const c = S.terr[S.me.capital];
-      cam.z = 2.4;
-      cam.x = canvas.width / 2 - base.ox - c.x * base.s * cam.z;
-      cam.y = canvas.height / 2 - base.oy - c.y * base.s * cam.z;
-      applyCam();
-    }
+    if (S.map.world && canvas.getBoundingClientRect().width < 800) zoomBtn(-1);
   }
-  const myTeamVp = S.players.filter((p) => p.team === me().team).reduce((a, p) => a + p.vp, 0);
-  $('#timer').textContent = `⏱️ ${fmtTime(S.remaining)} · ⭐ ${fmt(myTeamVp)}/${fmt(S.vpTarget)}`;
   const teams = {};
   for (const p of S.players) (teams[p.team] = teams[p.team] || []).push(p);
   $('#vpBar').innerHTML = Object.values(teams).map((ps) => {
@@ -181,8 +283,11 @@ function renderGame() {
     return `<span class="vpchip">${ps.map((p) => `<span class="swatch" style="background:${p.color}"></span>${esc(p.name)}`).join(' + ')} ⭐${fmt(vp)}</span>`;
   }).join('');
   const lastLog = S.log.length ? S.log[S.log.length - 1].t : 0;
-  $('#logDot').classList.toggle('hidden', ui.tab === 'log' || lastLog <= ui.seenLog);
-  if (ui.tab === 'log') ui.seenLog = lastLog;
+  const logNew = !(ui.tab === 'log' && ui.sheetVisible()) && lastLog > ui.seenLog;
+  $('#logDot').classList.toggle('hidden', !logNew);
+  if (ui.tab === 'log' && ui.sheetVisible()) ui.seenLog = lastLog;
+  const chatNew = ui.tab !== 'chat' && ui.chat.length > ui.seenChat;
+  $('#moreDot').classList.toggle('hidden', !(dip || chatNew || incoming.length));
   if (S.winner && !ui.winnerShown) {
     ui.winnerShown = true;
     const won = S.winner.ids.includes(myId);
@@ -191,21 +296,31 @@ function renderGame() {
   }
   renderPanel();
 }
+ui.sheetVisible = () => !isMobile() || ui.sheet;
+
+let panelTouch = false;
+$('#tabBody').addEventListener('pointerdown', () => { panelTouch = true; });
+window.addEventListener('pointerup', () => setTimeout(() => { panelTouch = false; }, 50));
+window.addEventListener('pointercancel', () => { panelTouch = false; });
 
 function renderPanel(force) {
   const body = $('#tabBody');
   const active = document.activeElement;
   if (!force && active && body.contains(active) && /INPUT|SELECT/.test(active.tagName)) return;
+  if (!force && (panelTouch || !ui.sheetVisible())) return; // don't swap buttons under a finger, or render a hidden sheet
+  const html = TABS[ui.tab]();
+  if (!force && html === ui.lastHtml) return;
+  ui.lastHtml = html;
   const scroll = body.scrollTop;
-  body.innerHTML = TABS[ui.tab]();
+  body.innerHTML = html;
   body.scrollTop = ui.tab === 'chat' ? body.scrollHeight : scroll;
   for (const el of body.querySelectorAll('[data-key]')) if (ui.inputs[el.dataset.key] !== undefined) el.value = ui.inputs[el.dataset.key];
   if (ui.tab === 'chat') {
-    const lastChat = ui.chat.length;
-    ui.seenChat = lastChat;
+    ui.seenChat = ui.chat.length;
     const inp = $('#chatInput'); if (inp && force && active && active.id === 'chatInput') inp.focus();
   }
   $('#chatDot').classList.toggle('hidden', ui.tab === 'chat' || ui.chat.length <= ui.seenChat);
+  updateEta();
 }
 
 const TABS = {
@@ -235,7 +350,7 @@ const TABS = {
   },
   train() {
     const m = S.me;
-    let h = '';
+    let h = '<div class="box hint">🪖 جنّد هنا، ثم اضغط على أي موقع في الخريطة واختر <b>هجوم</b>. المشاة 🪖 رخيصة، الدبابات 🚜 قوية برياً، المقاتلات ✈️ سريعة لكن الدفاع الجوي 📡 يصطادها.</div>';
     if (m.queue.length) {
       h += `<div class="box"><h4>🏭 طابور التصنيع</h4>` + m.queue.map((q, i) =>
         `<div class="stats">${meta.UNITS[q.unit].icon} ${meta.UNITS[q.unit].name} × ${q.count}${i === 0 ? ` · التالية خلال ${fmtTime(q.remaining)}` : ''}</div>`).join('') + `</div>`;
@@ -250,9 +365,9 @@ const TABS = {
       h += `<div class="box"><h4><span>${u.icon} ${u.name}</span></h4>
         <div class="stats">⚔️ هجوم ${u.att}${u.air ? ' (جوي)' : ''} · 🛡️ دفاع بري ${u.defG} · دفاع جوي ${u.defA} · 🏃 سرعة ${u.speed} · 🌾 ${u.upkeep}/د · 👥 ${u.crew}${u.oneShot ? ' · يُستهلك عند الهجوم' : ''}</div>
         <div class="cost">${costHtml(c.cost)} · ⏱️${fmtTime(c.time)} للوحدة</div>
-        <div class="unitrow"><input type="number" min="1" max="${maxN}" value="1" data-key="train-${k}">
-        <button class="small" data-max="${k}" data-n="${maxN}">الحد الأقصى (${maxN})</button>
-        <button class="small primary" data-train="${k}" ${maxN < 1 ? 'disabled' : ''}>تصنيع</button></div></div>`;
+        <div class="actions">${stepper('train-' + k, 1, maxN, 1)}
+        <button class="small" data-set="train-${k}" data-n="${maxN}">الأقصى ${maxN}</button>
+        <button class="primary grow" data-train="${k}" ${maxN < 1 ? 'disabled' : ''}>تصنيع</button></div></div>`;
     }
     return h;
   },
@@ -260,10 +375,11 @@ const TABS = {
     if (ui.mode === 'send') return sendForm();
     if (ui.selected == null) return '<p class="sub">اضغط على أي موقع في الخريطة لعرض معلوماته.</p>';
     const t = S.terr[ui.selected], T = meta.TERR[t.type];
+    const stratHint = t.type === 'strategic' && !friendly(t.owner) ? '<div class="box hint">⭐ هذا مركز قيادة: كل دقيقة تملكه فيها تعطي فريقك 10 نقاط نصر. هذا هو طريق الفوز!</div>' : '';
     const owner = t.owner ? player(t.owner) : null;
     let h = `<div class="box"><h4>${terrName(t)}</h4>
       <div class="stats">المالك: ${owner ? `<span class="swatch" style="background:${owner.color}"></span>${esc(owner.name)}` : 'محايد'}</div>
-      <div class="stats">الإنتاج: ${Object.keys(T.prod).filter((r) => T.prod[r]).map((r) => RES_ICONS[r] + T.prod[r] + '/د').join(' ')}${t.type === 'strategic' ? ' · ⭐ 10 نقاط نصر/د' : ''} · 👥 سكان ${T.pop}</div></div>`;
+      <div class="stats">الإنتاج: ${Object.keys(T.prod).filter((r) => T.prod[r]).map((r) => RES_ICONS[r] + T.prod[r] + '/د').join(' ')}${t.type === 'strategic' ? ' · ⭐ 10 نقاط نصر/د' : ''} · 👥 سكان ${T.pop}</div></div>` + stratHint;
     h += `<div class="box"><h4>🪖 الحامية</h4>`;
     if (t.units) h += `<div>${unitsLine(t.units)}</div>`;
     else if (t.scout) h += `<div>${unitsLine(t.scout.units)}</div><div class="stats">من تقرير استطلاع قبل ${fmtTime(t.scout.age)}</div>`;
@@ -279,11 +395,17 @@ const TABS = {
     }
     if (t.owner === myId) {
       h += total(t.units) > 0
-        ? `<button class="primary" onclick="startSend(${t.id})">🎯 إرسال قوات من هنا</button>`
+        ? `<button class="primary block" onclick="startSend(${t.id})">🎯 إرسال قوات من هنا</button>`
         : '<p class="sub">لا توجد قوات هنا للإرسال.</p>';
     } else if (!friendly(t.owner)) {
-      const mine = S.terr.filter((x) => x.owner === myId && x.units && total(x.units) > 0);
-      if (mine.length) h += `<div class="sub">هاجمه من:</div>` + mine.map((x) => `<button class="small" style="margin:3px" onclick="startSend(${x.id}, ${t.id})">${terrName(x)}</button>`).join('');
+      if (t.owner && S.protection > 0) h += `<div class="box hint">🛡️ اللاعبون محميون من الهجوم أول ${fmtTime(S.protection)}. استغلها للتوسع على المواقع المحايدة.</div>`;
+      const mine = S.terr.filter((x) => x.owner === myId && x.units && total(x.units) > 0)
+        .sort((a, b) => Math.hypot(a.x - t.x, a.y - t.y) - Math.hypot(b.x - t.x, b.y - t.y));
+      if (!mine.length) h += '<p class="sub">ما عندك قوات. جنّد من تبويب الجيش أولاً.</p>';
+      else {
+        h += `<button class="primary block danger" onclick="startSend(${mine[0].id}, ${t.id})">⚔️ هاجم من ${terrName(mine[0])}</button>`;
+        if (mine.length > 1) h += `<div class="sub">أو من:</div><div class="target-list">` + mine.slice(1, 6).map((x) => `<button class="small" onclick="startSend(${x.id}, ${t.id})">${terrName(x)}</button>`).join('') + '</div>';
+      }
     }
     return h;
   },
@@ -298,9 +420,9 @@ const TABS = {
   rank() {
     const rows = S.players.slice().sort((a, b) => b.vp - a.vp).map((p) => {
       const f = meta.FACTIONS[p.faction];
-      return `<tr><td><span class="swatch" style="background:${p.color}"></span>${esc(p.name)}${p.id === myId ? ' (أنت)' : ''}</td><td>${f.flag}</td><td>${p.allied ? S.players.filter((x) => x.team === p.team && x.id !== p.id).map((x) => `<span class="swatch" style="background:${x.color}"></span>`).join('') : '-'}</td><td>${p.territories}</td><td>⭐${fmt(p.vp)}</td></tr>`;
+      return `<tr class="${p.id === myId ? 'me' : ''}"><td><span class="swatch" style="background:${p.color}"></span>${esc(p.name)}${p.id === myId ? ' (أنت)' : ''}</td><td>${f.flag}</td><td>${p.allied ? S.players.filter((x) => x.team === p.team && x.id !== p.id).map((x) => `<span class="swatch" style="background:${x.color}"></span>`).join('') : '-'}</td><td>${p.territories}</td><td>⭐${fmt(p.vp)}</td></tr>`;
     }).join('');
-    return `<p class="sub">الهدف: ${fmt(S.vpTarget)} نقطة نصر للفريق. كل مركز ⭐ يعطي 10 نقاط/دقيقة لعبة.</p>
+    return `<h4>📊 الترتيب</h4>
       <table class="rank"><tr><th>اللاعب</th><th>الدولة</th><th>حلفاء</th><th>المواقع</th><th>النقاط</th></tr>${rows}</table>`;
   },
   log() {
@@ -347,7 +469,12 @@ const TABS = {
     return h + '</div>';
   },
   world() {
-    let h = '';
+    const g = goalInfo();
+    let h = `<div class="box hint"><h4>🏆 كيف تفوز</h4>
+      أول فريق يجمع <b>${fmt(S.vpTarget)} ⭐</b> يفوز. وإذا انتهى الوقت (${fmtTime(S.remaining)}) يفوز صاحب أعلى نقاط.<br>
+      ⭐ كل مركز قيادة تملكه = 10 نقاط كل دقيقة. وتكسب نقاط إضافية من الأزمات الدولية (وساطة أو دعم الطرف الفائز).<br>
+      فريقك الآن: <b>⭐ ${fmt(g.mine)}</b> · يملك <b>${g.held}/${g.total}</b> مراكز${g.eta != null ? ` · يوصل للهدف خلال ~${fmtTime(g.eta)}` : ''}.
+      <div class="bar"><i style="width:${Math.min(100, (100 * g.mine) / S.vpTarget)}%"></i></div></div>`;
     const nm = (id) => { const p = player(id); return `${meta.FACTIONS[p.faction].flag} ${esc(p.name)}`; };
     const c = S.crisis;
     if (c) {
@@ -441,6 +568,13 @@ const TABS = {
     }
     return h;
   },
+  more() {
+    const dots = { dip: S.proposalsIn.length > 0, chat: ui.chat.length > ui.seenChat, moves: S.movements.some((x) => x.hostile), log: !$('#logDot').classList.contains('hidden') };
+    const items = [['moves', '🚀', 'التحركات'], ['tech', '🔬', 'الأبحاث والقادة'], ['trade', '⚖️', 'التجارة'], ['dip', '🤝', 'الدبلوماسية'], ['log', '📜', 'الأحداث'], ['chat', '💬', 'الدردشة']];
+    return `<div class="more-grid">${items.map(([k, i, n]) => `<button data-goto="${k}"><i>${i}</i>${n}${dots[k] ? '<span class="dot"></span>' : ''}</button>`).join('')}
+      <button onclick="showTutorial(0)"><i>❓</i>كيف ألعب</button><button data-theme-toggle-alt onclick="document.querySelector('#topBtns [data-theme-toggle]').click()"><i>🌓</i>فاتح / داكن</button>
+      <button onclick="selectTerr(S.me.capital);focusTerr(S.me.capital)"><i>🏠</i>عاصمتي</button></div>`;
+  },
   chat() {
     const list = ui.chat.map((c) => `<div class="log-item">${c.teamOnly ? '<span class="tag">للفريق</span> ' : ''}<b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('');
     return `<div class="chat-list">${list || '<p class="sub">لا رسائل بعد.</p>'}</div>
@@ -448,6 +582,10 @@ const TABS = {
       ${me().allied ? '<label><input type="checkbox" id="teamOnly" style="width:auto"> للفريق</label>' : ''}<button>إرسال</button></form>`;
   },
 };
+
+function stepper(key, min, max, def) {
+  return `<div class="stepper"><button data-step="${key}" data-d="-1" data-min="${min}" data-max="${max}">−</button><input type="number" inputmode="numeric" min="${min}" max="${max}" value="${def}" data-key="${key}"><button data-step="${key}" data-d="1" data-min="${min}" data-max="${max}">+</button></div>`;
+}
 
 function sendForm() {
   const from = S.terr[ui.sendFrom];
@@ -457,17 +595,19 @@ function sendForm() {
   const own = to.owner === myId;
   let h = `<div class="box"><h4>🎯 ${terrName(from)} ← ${terrName(to)}</h4>`;
   const known = to.units || (to.scout && to.scout.units);
-  if (!own) h += `<div class="stats">حامية الهدف: ${known ? unitsLine(known) : '❓ غير معروفة'}</div>`;
-  for (const [k, u] of Object.entries(meta.UNITS)) {
-    const n = from.units[k]; if (!n) continue;
-    h += `<div class="unitrow"><span>${u.icon} ${u.name} (${n})</span><input type="number" min="0" max="${n}" value="0" data-key="send-${k}" data-send="${k}"><button class="small" data-all="${k}" data-n="${n}">الكل</button></div>`;
+  if (!own) h += `<div class="stats">حامية الهدف: ${known ? unitsLine(known) : '❓ غير معروفة (أرسل درونز 🛸 للاستطلاع)'}</div>`;
+  const avail = Object.keys(meta.UNITS).filter((k) => from.units[k]);
+  h += `<div class="actions"><button class="small" data-sendall="1">✅ كل القوات</button><button class="small" data-sendall="0">✖️ تصفير</button></div>`;
+  for (const k of avail) {
+    const u = meta.UNITS[k], n = from.units[k];
+    h += `<div class="unitrow sendrow"><span>${u.icon} ${u.name} <small class="sub">(${n})</small></span>${stepper('send-' + k, 0, n, 0)}<button class="small" data-set="send-${k}" data-n="${n}">الكل</button></div>`;
   }
   const g = S.me.general;
-  if (g && g.loc === from.id) h += `<label class="unitrow"><input type="checkbox" id="withGeneral" style="width:auto" ${ui.withGeneral !== false ? 'checked' : ''}> ${meta.GENERALS[g.type].icon} يرافق ${meta.GENERALS[g.type].name} (مستوى ${g.level}) هذا الجيش</label>`;
-  h += `<div class="stats" id="eta"></div><div class="row">`;
-  if (own) h += `<button class="primary" onclick="doSend('reinforce')">🛡️ تعزيز</button>`;
-  else if (friendly(to.owner)) h += `<span class="sub">لا يمكن مهاجمة حليف.</span>`;
-  else h += `<button class="primary danger" onclick="doSend('attack')">⚔️ هجوم</button><button onclick="doSend('scout')">🛸 استطلاع (درونز فقط)</button>`;
+  if (g && g.loc === from.id) h += `<label class="unitrow"><input type="checkbox" id="withGeneral" style="width:auto;min-height:0" ${ui.withGeneral !== false ? 'checked' : ''}> ${meta.GENERALS[g.type].icon} يرافق ${meta.GENERALS[g.type].name} (مستوى ${g.level}) هذا الجيش</label>`;
+  h += `<div class="stats" id="eta"></div><div class="actions">`;
+  if (own) h += `<button class="primary grow" onclick="doSend('reinforce')">🛡️ تعزيز</button>`;
+  else if (friendly(to.owner)) h += `<span class="sub grow">لا يمكن إرسال قوات لموقع حليف.</span>`;
+  else h += `<button class="primary danger grow" onclick="doSend('attack')">⚔️ هجوم</button><button onclick="doSend('scout')">🛸 استطلاع</button>`;
   h += `<button onclick="cancelSend()">إلغاء</button></div></div>`;
   return h;
 }
@@ -491,21 +631,27 @@ function updateEta() {
   el.textContent = `⏱️ وقت الوصول: ${fmtTime(secs)} · ⚔️ قوة الهجوم: ${fmt(att)}`;
 }
 
-window.selectTerr = (id) => { ui.selected = id; ui.mode = null; setTab('site'); };
+const TAB_TITLES = { base: '🏛️ قاعدتي', train: '🏭 الجيش', site: '📍 الموقع', moves: '🚀 التحركات', tech: '🔬 الأبحاث والقادة', world: '🌍 العالم والترتيب', trade: '⚖️ التجارة', dip: '🤝 الدبلوماسية', log: '📜 الأحداث', chat: '💬 الدردشة', more: '☰ المزيد' };
+const NAV_OF = { base: 'base', train: 'train', world: 'world', site: 'map' };
+
+window.selectTerr = (id) => { ui.selected = id; ui.mode = null; ui.confirmStrike = null; setTab('site'); };
 window.startSend = (from, to) => {
   ui.mode = 'send'; ui.sendFrom = from; ui.sendTo = to ?? null; ui.selected = from;
   for (const k in ui.inputs) if (k.startsWith('send-')) delete ui.inputs[k];
-  setTab('site'); updateBanner();
+  if (ui.sendTo == null && isMobile()) { ui.tab = 'site'; closeSheet(); } // free the map so the target can be tapped
+  else setTab('site');
+  updateBanner();
 };
-window.cancelSend = () => { ui.mode = null; ui.sendTo = null; updateBanner(); renderPanel(true); };
+window.cancelSend = () => { ui.mode = null; ui.sendTo = null; updateBanner(); renderPanel(true); if (S) renderGame(); };
 window.doSend = (mission) => {
   const units = sendUnits();
-  if (total(units) === 0) return toast('اختر عدد الوحدات');
+  if (total(units) === 0) return toast('اختر عدد الوحدات (أو اضغط "كل القوات")');
   const wg = $('#withGeneral');
   cmd({ type: 'send', from: ui.sendFrom, to: ui.sendTo, units, mission, withGeneral: !!(wg && wg.checked) });
   ui.mode = null; ui.selected = ui.sendTo; ui.sendTo = null; updateBanner();
   for (const k in ui.inputs) if (k.startsWith('send-')) delete ui.inputs[k];
-  setTab('moves');
+  if (isMobile()) { toast('🚀 انطلقت قواتك! تابعها على الخريطة', true); ui.tab = 'moves'; closeSheet(); }
+  else setTab('moves');
 };
 window.sendChat = (e) => {
   e.preventDefault();
@@ -517,17 +663,41 @@ window.sendChat = (e) => {
 function updateBanner() {
   const b = $('#modeBanner');
   if (ui.mode === 'send' && ui.sendTo == null) {
-    b.innerHTML = `اختر الهدف على الخريطة <button onclick="cancelSend()">إلغاء</button>`;
+    b.innerHTML = `🎯 اضغط على الهدف في الخريطة <button onclick="cancelSend()">إلغاء</button>`;
     b.classList.remove('hidden');
   } else b.classList.add('hidden');
 }
 
-function setTab(t) {
-  ui.tab = t;
-  for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('active', b.dataset.tab === t);
-  if (S) { renderPanel(true); updateEta(); }
+function syncNav() {
+  const open = ui.sheetVisible();
+  $('#game').classList.toggle('sheet-open', ui.sheet);
+  $('#game').classList.toggle('sheet-full', ui.sheet && ['chat', 'trade', 'dip'].includes(ui.tab));
+  const nav = !isMobile() || open ? (NAV_OF[ui.tab] || 'more') : 'map';
+  for (const b of document.querySelectorAll('#bottomNav button')) b.classList.toggle('active', b.dataset.nav === nav);
+  $('#sheetTitle').textContent = TAB_TITLES[ui.tab] || '';
 }
+window.setTab = (t) => {
+  ui.tab = t; ui.sheet = true;
+  if (t !== 'site') ui.confirmStrike = null;
+  for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('active', b.dataset.tab === t);
+  syncNav();
+  if (S) { renderPanel(true); $('#tabBody').scrollTop = 0; }
+};
+window.closeSheet = () => { ui.sheet = false; syncNav(); };
 $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); };
+$('#bottomNav').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const n = b.dataset.nav;
+  if (n === 'map' || (ui.sheet && (NAV_OF[ui.tab] || 'more') === n)) return closeSheet();
+  setTab(n);
+};
+// swipe the sheet header down to close it
+(() => {
+  let y0 = null;
+  $('#sheetHead').addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; }, { passive: true });
+  $('#sheetHead').addEventListener('touchend', (e) => { if (y0 != null && e.changedTouches[0].clientY - y0 > 50) closeSheet(); y0 = null; });
+})();
+window.addEventListener('resize', () => { if (S) { syncNav(); renderGame(); } });
 
 $('#tabBody').addEventListener('input', (e) => {
   const k = e.target.dataset.key; if (!k) return;
@@ -539,12 +709,27 @@ $('#tabBody').addEventListener('input', (e) => {
   updateEta();
   if (k === 'mk-amt' && $('#mkOut')) $('#mkOut').textContent = v > 0 ? 'ستحصل على ' + fmt(v * S.me.marketRate) : '';
 });
+function setInput(key, v) {
+  ui.inputs[key] = v;
+  const el = document.querySelector(`#tabBody [data-key="${key}"]`); if (el) el.value = v;
+  updateEta();
+}
 $('#tabBody').addEventListener('click', (e) => {
-  const d = e.target.dataset;
-  if (d.up) cmd({ type: 'upgrade', building: d.up });
-  else if (d.train) { const n = Number(ui.inputs['train-' + d.train] || 1); cmd({ type: 'train', unit: d.train, count: n }); }
-  else if (d.max) { ui.inputs['train-' + d.max] = Number(d.n); renderPanel(true); }
-  else if (d.all) { ui.inputs['send-' + d.all] = Number(d.n); renderPanel(true); updateEta(); }
+  const el = e.target.closest('button,[data-goto]'); if (!el) return;
+  const d = el.dataset;
+  if (d.goto) setTab(d.goto);
+  else if (d.step) {
+    const cur = Number(ui.inputs[d.step] ?? document.querySelector(`#tabBody [data-key="${d.step}"]`)?.value ?? 0);
+    const big = cur >= 20 ? 5 : 1; // speed up long presses through big armies
+    setInput(d.step, Math.max(Number(d.min), Math.min(Number(d.max), cur + Number(d.d) * big)));
+  } else if (d.set) setInput(d.set, Number(d.n));
+  else if (d.sendall) { const from = S.terr[ui.sendFrom]; for (const k of Object.keys(meta.UNITS)) if (from.units[k]) setInput('send-' + k, d.sendall === '1' ? from.units[k] : 0); }
+  else if (d.up) cmd({ type: 'upgrade', building: d.up });
+  else if (d.train) {
+    const n = Number(ui.inputs['train-' + d.train] || 1);
+    cmd({ type: 'train', unit: d.train, count: n });
+    toast(`🏭 أُضيف ${n} ${meta.UNITS[d.train].name} للتصنيع`, true);
+  }
   else if (d.market) cmd({ type: 'market', give: ui.inputs['mk-give'] || 'money', get: ui.inputs['mk-get'] || 'food', amount: Number(ui.inputs['mk-amt'] || 0) });
   else if (d.offer) cmd({ type: 'offer', give: ui.inputs['of-give'] || 'oil', giveAmt: Number(ui.inputs['of-ga'] || 0), want: ui.inputs['of-want'] || 'money', wantAmt: Number(ui.inputs['of-wa'] || 0) });
   else if (d.cancel) cmd({ type: 'cancelOffer', id: Number(d.cancel) });
@@ -564,6 +749,30 @@ $('#tabBody').addEventListener('click', (e) => {
   else if (d.crisis) cmd({ type: 'crisis', id: S.crisis.id, action: d.crisis, side: d.side });
   else if (d.vote) cmd({ type: 'vote', id: S.vote.id, choice: d.vote });
 });
+$('#tabBody').addEventListener('change', (e) => { if (e.target.id === 'withGeneral') ui.withGeneral = e.target.checked; });
+
+// ---------------- tutorial ----------------
+const TUTORIAL = [
+  ['🏆', '<b>هدف اللعبة</b><br>على الخريطة مراكز قيادة <b>⭐</b>. كل مركز تملكه يعطي فريقك <b>10 نقاط نصر كل دقيقة</b>.<br>أول فريق يوصل للهدف يفوز، وإذا خلص الوقت يفوز الأعلى نقاطاً. البطاقة أعلى الخريطة تعرض تقدّمك دائماً.'],
+  ['🏭', '<b>١. جنّد جيشك</b><br>من زر <b>الجيش</b> تحت. المشاة رخيصة، الدبابات قوية، المقاتلات سريعة.<br>انتبه: كل جندي يأكل 🌾 غذاء ويقلل العمال المدنيين.'],
+  ['⚔️', '<b>٢. هاجم واحتل</b><br>اضغط على أي موقع في الخريطة ثم <b>هاجم</b>. ابدأ بالمواقع الرمادية المحايدة القريبة: مدن 🏙️ ونفط 🛢️ ومناجم ⛏️ ومزارع 🌾 تزيد دخلك.'],
+  ['⭐', '<b>٣. سيطر على مراكز القيادة</b><br>لما يقوى جيشك احتل مراكز ⭐ وخلّ فيها حامية قوية، لأن الأعداء بيحاولون ياخذونها منك.'],
+  ['🛡️', '<b>نصائح</b><br>أول 20 دقيقة لا أحد يقدر يهاجم اللاعبين، استغلها للتوسع.<br>الشريط الأزرق 💡 أعلى الخريطة يقترح عليك الخطوة الجاية دائماً. وتقدر تتحالف وتتاجر من <b>المزيد</b>.'],
+];
+window.showTutorial = (i) => {
+  const el = $('#tutorial');
+  if (i >= TUTORIAL.length) { el.classList.add('hidden'); try { localStorage.setItem('tutDone', '1'); } catch {} return; }
+  const [icon, text] = TUTORIAL[i];
+  el.innerHTML = `<div class="card"><div class="tut-icon">${icon}</div><div class="tut-text">${text}</div>
+    <div class="tut-dots">${TUTORIAL.map((_, j) => `<i class="${j === i ? 'on' : ''}"></i>`).join('')}</div>
+    <div class="tut-btns">${i < TUTORIAL.length - 1 ? `<button onclick="showTutorial(${TUTORIAL.length})">تخطي</button>` : ''}<button class="primary" onclick="showTutorial(${i + 1})">${i < TUTORIAL.length - 1 ? 'التالي' : 'يلا نبدأ! 🚀'}</button></div></div>`;
+  el.classList.remove('hidden');
+};
+function maybeTutorial() {
+  let done = false;
+  try { done = localStorage.getItem('tutDone'); } catch {}
+  if (!done) showTutorial(0);
+}
 
 // ---------------- map ----------------
 const canvas = $('#map'), ctx = canvas.getContext('2d');
@@ -585,7 +794,20 @@ function zoomAt(f, cx, cy) { // cx, cy in canvas pixels
   cam.z = z; if (z === 1) { cam.x = 0; cam.y = 0; }
   applyCam();
 }
-window.zoomBtn = (f) => { if (f === 0) { cam = { z: 1, x: 0, y: 0 }; applyCam(); } else zoomAt(f, canvas.width / 2, canvas.height / 2); };
+// centre a territory; on phones keep it in the strip above the open bottom sheet
+window.focusTerr = (id, z) => {
+  const t = S.terr[id];
+  if (z) cam.z = z;
+  const fy = isMobile() && ui.sheet ? 0.2 : 0.5;
+  cam.x = canvas.width / 2 - base.ox - t.x * base.s * cam.z;
+  cam.y = canvas.height * fy - base.oy - t.y * base.s * cam.z;
+  applyCam();
+};
+window.zoomBtn = (f) => {
+  if (f === 0) { cam = { z: 1, x: 0, y: 0 }; applyCam(); }
+  else if (f === -1) focusTerr(S.me.capital, Math.min(6, Math.max(cam.z, 1.6, canvas.height / (S.map.H * base.s)))); // fill the screen height
+  else zoomAt(f, canvas.width / 2, canvas.height / 2);
+};
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const r = canvas.getBoundingClientRect();
@@ -602,7 +824,7 @@ canvas.addEventListener('pointermove', (e) => {
     const dx = cur.x - prev.x, dy = cur.y - prev.y;
     if (dragged || Math.abs(dx) + Math.abs(dy) > 4) {
       dragged = true;
-      if (cam.z > 1) { cam.x += dx * view.dpr; cam.y += dy * view.dpr; applyCam(); }
+      cam.x += dx * view.dpr; cam.y += dy * view.dpr; applyCam();
       pointers.set(e.pointerId, cur);
     }
   } else if (pointers.size === 2) {
@@ -631,8 +853,14 @@ canvas.addEventListener('click', (e) => {
     for (const k in ui.inputs) if (k.startsWith('send-')) delete ui.inputs[k];
     updateBanner(); setTab('site');
   } else selectTerr(best.id);
+  // if the open sheet would cover the tapped site, slide the map up
+  if (isMobile() && (e.clientY - r.top) > r.height * 0.33) focusTerr(best.id);
 });
 
+function haloText(txt, x, y, color) {
+  ctx.lineWidth = 3; ctx.strokeStyle = PAL.halo; ctx.lineJoin = 'round';
+  ctx.strokeText(txt, x, y); ctx.fillStyle = color; ctx.fillText(txt, x, y);
+}
 function draw() {
   requestAnimationFrame(draw);
   if (!S || $('#game').classList.contains('hidden')) return;
@@ -643,15 +871,15 @@ function draw() {
   const MW = S.map.W, MH = S.map.H, world = S.map.world, K = world ? 0.75 : 1;
   ctx.save();
   ctx.beginPath(); ctx.rect(0, 0, MW, MH); ctx.clip();
-  ctx.fillStyle = world ? '#0b2131' : '#0f1a24'; ctx.fillRect(0, 0, MW, MH);
+  ctx.fillStyle = world ? PAL.ocean : PAL.sea; ctx.fillRect(0, 0, MW, MH);
   if (world) {
     const poly = (pts) => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); };
-    ctx.fillStyle = '#1f2d24'; ctx.strokeStyle = '#3d5546'; ctx.lineWidth = 1.2;
+    ctx.fillStyle = PAL.land; ctx.strokeStyle = PAL.coast; ctx.lineWidth = 1.2;
     for (const l of meta.WORLD_DRAW.land) { poly(l); ctx.fill(); ctx.stroke(); }
-    ctx.fillStyle = '#0b2131';
+    ctx.fillStyle = PAL.ocean;
     for (const w of meta.WORLD_DRAW.water) { poly(w); ctx.fill(); ctx.stroke(); }
   }
-  ctx.strokeStyle = '#ffffff0a'; ctx.lineWidth = 1;
+  ctx.strokeStyle = PAL.grid; ctx.lineWidth = 1;
   for (let x = 0; x <= MW; x += 50) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MH); ctx.stroke(); }
   for (let y = 0; y <= MH; y += 50) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MW, y); ctx.stroke(); }
   ctx.restore();
@@ -676,21 +904,21 @@ function draw() {
     const x = a.x + (b.x - a.x) * prog, y = a.y + (b.y - a.y) * prog;
     ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
-    ctx.fillText(fmtTime(Math.max(0, m.eta - elapsed)), x, y - 10);
+    ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+    haloText(fmtTime(Math.max(0, m.eta - elapsed)), x, y - 11, m.hostile ? '#f85149' : PAL.label);
   }
 
   // territories
   for (const t of S.terr) {
     const r = (t.type === 'capital' ? 22 : t.type === 'strategic' ? 20 : 15) * K;
     const p = t.owner ? player(t.owner) : null;
-    ctx.fillStyle = p ? p.color : '#3a4450';
+    ctx.fillStyle = p ? p.color : PAL.neutral;
     ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, Math.PI * 2); ctx.fill();
     ctx.lineWidth = t.type === 'strategic' ? 3 : 2;
-    ctx.strokeStyle = t.type === 'strategic' ? '#ffd54f' : '#0d1117';
+    ctx.strokeStyle = t.type === 'strategic' ? '#ffc107' : PAL.ring;
     ctx.stroke();
     if (ui.selected === t.id || ui.sendFrom === t.id && ui.mode === 'send' || ui.sendTo === t.id && ui.mode === 'send') {
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = PAL.select; ctx.lineWidth = 2.5; ctx.setLineDash([4, 3]);
       ctx.beginPath(); ctx.arc(t.x, t.y, r + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
     }
     ctx.font = `${r}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -702,11 +930,11 @@ function draw() {
     ctx.fillStyle = '#000000b0'; ctx.fillRect(t.x - w / 2, t.y + r + 2, w, fs + 3);
     ctx.fillStyle = t.units ? '#fff' : '#aaa'; ctx.fillText(label, t.x, t.y + r + 3 + fs / 2);
     if (t.type === 'capital') {
-      ctx.font = `${fs}px sans-serif`; ctx.fillStyle = '#fff';
-      ctx.fillText(meta.FACTIONS[p.faction].flag + ' ' + p.name, t.x, t.y - r - 8);
+      ctx.font = `bold ${fs}px sans-serif`;
+      haloText(meta.FACTIONS[p.faction].flag + ' ' + p.name, t.x, t.y - r - 8, PAL.label);
     } else if (t.name && (t.type === 'strategic' || cam.z >= 2)) {
-      ctx.font = `${t.type === 'strategic' ? 'bold ' : ''}${fs - 1}px sans-serif`; ctx.fillStyle = t.type === 'strategic' ? '#ffd54f' : '#cfd8dc';
-      ctx.fillText(t.name, t.x, t.y - r - 7);
+      ctx.font = `${t.type === 'strategic' ? 'bold ' : ''}${fs - 1}px sans-serif`;
+      haloText(t.name, t.x, t.y - r - 7, t.type === 'strategic' ? PAL.strat : PAL.name);
     }
   }
 }

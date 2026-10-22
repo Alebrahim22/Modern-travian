@@ -2,7 +2,9 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}catch(e){document.documentElement.dataset.theme='dark'}</script>
 <title>حرب القوى العظمى</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -11,8 +13,16 @@
 <!-- Home -->
 <section id="home" class="screen">
   <div class="card home-card">
-    <h1>⚔️ حرب القوى العظمى</h1>
+    <div class="title-row"><h1>⚔️ حرب القوى العظمى</h1><button class="icon-btn" data-theme-toggle title="الوضع الفاتح / الداكن">🌓</button></div>
     <p class="sub">استراتيجية حربية حديثة أونلاين. مباراة من ساعة إلى ٣ ساعات مع أصدقائك.</p>
+    <div class="goal-box">
+      <h3>🏆 كيف تفوز؟</h3>
+      <ol>
+        <li>على الخريطة مراكز قيادة <b>⭐</b>. كل مركز تحتله يعطي فريقك <b>نقاط نصر كل دقيقة</b>.</li>
+        <li><b>أول فريق يوصل لهدف النقاط يفوز</b>، وإذا خلص الوقت يفوز صاحب أعلى نقاط.</li>
+        <li>جنّد جيش ← احتل مدن ونفط ومناجم لتقوي اقتصادك ← احتل مراكز ⭐ ودافع عنها.</li>
+      </ol>
+    </div>
     <label>اسمك</label>
     <input id="nameInput" maxlength="20" placeholder="اكتب اسمك">
     <label>اختر دولتك</label>
@@ -25,7 +35,7 @@
       <button id="joinBtn">انضمام</button>
     </div>
     <details class="rules">
-      <summary>طريقة اللعب</summary>
+      <summary>تفاصيل أكثر عن طريقة اللعب</summary>
       <ul>
         <li>تبدأ بعاصمة تنتج 💰 مال و🛢️ نفط و🔩 فولاذ و🌾 غذاء.</li>
         <li>👥 كل جندي يأخذ من سكانك: جيش أكبر يعني عمال مدنيين أقل واقتصاد أضعف، وكل وحدة تستهلك غذاء. إذا نفد الغذاء ينشق الجنود.</li>
@@ -48,7 +58,8 @@
 <!-- Lobby -->
 <section id="lobby" class="screen hidden">
   <div class="card lobby-card">
-    <h2>غرفة الانتظار</h2>
+    <div class="title-row"><h2>غرفة الانتظار</h2><button class="icon-btn" data-theme-toggle title="الوضع الفاتح / الداكن">🌓</button></div>
+    <div class="goal-box small-goal">🏆 <b>الهدف:</b> احتل مراكز القيادة ⭐ واجمع نقاط النصر. أول فريق يوصل للهدف يفوز. أضف بوتات لو تبي تجرّب لحالك.</div>
     <div class="code-box">كود الغرفة: <b id="roomCode"></b> <button id="copyLink" class="small">نسخ رابط الدعوة</button></div>
     <div id="lobbyPlayers"></div>
     <div class="row">
@@ -78,20 +89,29 @@
 <section id="game" class="screen hidden">
   <header id="topbar">
     <div id="resBar"></div>
-    <div id="timer"></div>
+    <div id="topBtns">
+      <button class="icon-btn" onclick="showTutorial(0)" title="كيف ألعب؟">❓</button>
+      <button class="icon-btn" data-theme-toggle title="الوضع الفاتح / الداكن">🌓</button>
+    </div>
   </header>
   <div id="gameBody">
     <div id="mapWrap">
       <canvas id="map"></canvas>
+      <div id="hud">
+        <div id="goalCard" onclick="setTab('world')"></div>
+        <div id="alertPill" class="hidden" onclick="setTab('moves')"></div>
+        <div id="tipCard" class="hidden"></div>
+        <div id="eventBar" class="hidden" onclick="setTab('world')"></div>
+      </div>
       <div id="modeBanner" class="hidden"></div>
-      <div id="eventBar" class="hidden"></div>
       <div id="vpBar"></div>
-      <div id="zoom"><button onclick="zoomBtn(1.4)">+</button><button onclick="zoomBtn(1/1.4)">−</button><button onclick="zoomBtn(0)">⟲</button></div>
+      <div id="zoom"><button onclick="zoomBtn(1.4)" aria-label="تكبير">+</button><button onclick="zoomBtn(1/1.4)" aria-label="تصغير">−</button><button onclick="zoomBtn(-1)" aria-label="عاصمتي">🏠</button><button onclick="zoomBtn(0)" aria-label="الخريطة كاملة">⟲</button></div>
     </div>
     <aside id="panel">
+      <div id="sheetHead"><span class="grip"></span><b id="sheetTitle"></b><button class="icon-btn" onclick="closeSheet()" aria-label="إغلاق">✕</button></div>
       <nav id="tabs">
         <button data-tab="base" class="active">🏛️ قاعدتي</button>
-        <button data-tab="train">🏭 تجنيد</button>
+        <button data-tab="train">🏭 الجيش</button>
         <button data-tab="site">📍 الموقع</button>
         <button data-tab="moves">🚀 تحركات</button>
         <button data-tab="tech">🔬 أبحاث</button>
@@ -104,8 +124,16 @@
       <div id="tabBody"></div>
     </aside>
   </div>
+  <nav id="bottomNav">
+    <button data-nav="map" class="active"><i>🗺️</i>الخريطة</button>
+    <button data-nav="base"><i>🏛️</i>قاعدتي</button>
+    <button data-nav="train"><i>🏭</i>الجيش</button>
+    <button data-nav="world"><i>🌍</i>العالم<span id="worldDot2" class="dot hidden"></span></button>
+    <button data-nav="more"><i>☰</i>المزيد<span id="moreDot" class="dot hidden"></span></button>
+  </nav>
   <div id="toast"></div>
   <div id="winner" class="hidden"></div>
+  <div id="tutorial" class="hidden"></div>
 </section>
 
 <script src="client.js"></script>
