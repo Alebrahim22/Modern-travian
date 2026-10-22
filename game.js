@@ -52,18 +52,23 @@ const UNITS = {
   sam:   { name: 'دفاع جوي',     icon: '📡', cost: { money: 120, oil: 30,  steel: 70, food: 0 },  time: 20, att: 0,  air: false, defG: 15, defA: 80, speed: 40,  upkeep: 2,   crew: 2 },
   jet:   { name: 'مقاتلة',       icon: '✈️', cost: { money: 320, oil: 140, steel: 70, food: 0 },  time: 40, att: 90, air: true,  defG: 20, defA: 40, speed: 180, upkeep: 4,   crew: 2 },
   drone: { name: 'درون استطلاع', icon: '🛸', cost: { money: 40,  oil: 15,  steel: 10, food: 0 },  time: 6,  att: 0,  air: true,  defG: 1,  defA: 1,  speed: 240, upkeep: 0.5, crew: 1 },
+  heli:  { name: 'مروحية هجومية', icon: '🚁', cost: { money: 220, oil: 90,  steel: 50, food: 0 },  time: 28, att: 55, air: true,  defG: 30, defA: 15, speed: 120, upkeep: 3,   crew: 2 },
+  sf:    { name: 'قوات خاصة',     icon: '🥷', cost: { money: 150, oil: 10,  steel: 15, food: 30 }, time: 15, att: 32, air: false, defG: 20, defA: 8,  speed: 95,  upkeep: 1.5, crew: 1, req: 'logistics' },
+  arty:  { name: 'مدفعية',        icon: '💥', cost: { money: 200, oil: 40,  steel: 110, food: 0 }, time: 30, att: 70, air: false, defG: 15, defA: 5,  speed: 35,  upkeep: 2,   crew: 3, req: 'armor', siege: 1.5 },
+  abm:   { name: 'دفاع صاروخي',   icon: '🛡️', cost: { money: 300, oil: 60,  steel: 180, food: 0 }, time: 40, att: 0,  air: false, defG: 10, defA: 60, speed: 30,  upkeep: 3,   crew: 3, req: 'satellites', intercept: 1 },
+  bomber: { name: 'قاذفة شبح',    icon: '🛩️', cost: { money: 600, oil: 260, steel: 200, food: 0 }, time: 60, att: 170, air: true, defG: 15, defA: 30, speed: 150, upkeep: 6,  crew: 2, req: 'ew' },
   missile: { name: 'صاروخ باليستي', icon: '🚀', cost: { money: 400, oil: 150, steel: 150, food: 0 }, time: 30, att: 150, air: true, defG: 0, defA: 0, speed: 400, upkeep: 0, crew: 1, req: 'missiles', oneShot: true },
 };
 
 const TECH_COST = { 1: { money: 800, oil: 300, steel: 400, food: 200 }, 2: { money: 1800, oil: 700, steel: 900, food: 400 }, 3: { money: 3200, oil: 1200, steel: 1600, food: 700 } };
 const TECH_TIME = { 1: 150, 2: 300, 3: 480 };
 const TECHS = {
-  logistics:  { name: 'لوجستيات متقدمة', icon: '🚚', tier: 1, req: [], desc: 'كل جيوشك أسرع 20٪' },
+  logistics:  { name: 'لوجستيات متقدمة', icon: '🚚', tier: 1, req: [], desc: 'كل جيوشك أسرع 20٪ · يفتح 🥷 القوات الخاصة' },
   agri:       { name: 'زراعة حديثة', icon: '🌱', tier: 1, req: [], desc: 'إنتاج الغذاء +25٪' },
-  armor:      { name: 'دروع مركّبة', icon: '🛡️', tier: 1, req: [], desc: 'الدبابات: دفاع +25٪ وهجوم +10٪' },
-  ew:         { name: 'حرب إلكترونية', icon: '📶', tier: 2, req: ['armor'], desc: 'دفاعات العدو الجوية أضعف 30٪ ضد هجماتك' },
+  armor:      { name: 'دروع مركّبة', icon: '🛡️', tier: 1, req: [], desc: 'الدبابات: دفاع +25٪ وهجوم +10٪ · يفتح 💥 المدفعية' },
+  ew:         { name: 'حرب إلكترونية', icon: '📶', tier: 2, req: ['armor'], desc: 'دفاعات العدو الجوية أضعف 30٪ ضد هجماتك · يفتح 🛩️ القاذفة الشبح' },
   missiles:   { name: 'صواريخ باليستية', icon: '🚀', tier: 2, req: ['logistics'], desc: 'تفتح الصواريخ: هجوم 150، سريعة جداً، تُستهلك عند الإطلاق' },
-  satellites: { name: 'أقمار صناعية', icon: '🛰️', tier: 2, req: ['logistics'], desc: 'ترى كل حاميات الخريطة وتفاصيل الهجمات القادمة' },
+  satellites: { name: 'أقمار صناعية', icon: '🛰️', tier: 2, req: ['logistics'], desc: 'ترى كل حاميات الخريطة وتفاصيل الهجمات القادمة · يفتح 🛡️ الدفاع الصاروخي' },
   nuclear:    { name: 'المشروع السري', icon: '☢️', tier: 3, req: ['missiles', 'satellites'], desc: 'يسمح ببناء السلاح النهائي بعد الدقيقة 45' },
 };
 
@@ -137,7 +142,7 @@ const VP_PER_MIN = 10; // per strategic site, per game-minute
 const COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1', '#fdd835', '#6d4c41'];
 const REL = { hostile: -30, trade: 25, pact: 50, ally: 75 };
 
-const emptyUnits = () => ({ inf: 0, tank: 0, sam: 0, jet: 0, drone: 0, missile: 0 });
+const emptyUnits = () => Object.fromEntries(Object.keys(UNITS).map((k) => [k, 0]));
 const emptyRes = () => ({ money: 0, oil: 0, steel: 0, food: 0 });
 const sumUnits = (u) => Object.values(u).reduce((a, b) => a + b, 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -1003,12 +1008,13 @@ class Game {
     return parts.length ? parts.join(' ') : 'لا شيء';
   }
 
-  attackPower(p, units, general, def) {
+  attackPower(p, units, general, def, target) {
     const f = this.fac(p);
     const mult = f.attack * (general ? this.generalMult(p, 'attack') : 1) * this.crisisAttackBonus(p, def);
     let g = 0, a = 0;
     for (const u in units) {
-      const v = UNITS[u].att * units[u] * mult * (f.unitAtt[u] || 1) * (u === 'tank' && this.has(p, 'armor') ? 1.1 : 1);
+      const v = UNITS[u].att * units[u] * mult * (f.unitAtt[u] || 1) * (u === 'tank' && this.has(p, 'armor') ? 1.1 : 1)
+        * (UNITS[u].siege && target && (target.type === 'capital' || target.type === 'strategic') ? UNITS[u].siege : 1);
       if (UNITS[u].air) a += v; else g += v;
     }
     return { g, a };
@@ -1036,7 +1042,14 @@ class Game {
   battle(m, p, to) {
     const def = to.owner ? this.players[to.owner] : null;
     const gen = m.general && p.general ? p.general : null;
-    const { g, a } = this.attackPower(p, m.units, !!gen, def);
+    // missile defence shoots down incoming ballistic missiles before the fight
+    if (m.units.missile && to.units.abm) {
+      const shot = Math.min(m.units.missile, to.units.abm * UNITS.abm.intercept);
+      m.units.missile -= shot;
+      this.addLog(p.id, `🛡️ الدفاع الصاروخي في ${this.tname(to)} أسقط ${shot} من صواريخك`, 'bad');
+      if (def) this.addLog(def.id, `🛡️ دفاعك الصاروخي في ${this.tname(to)} أسقط ${shot} صاروخ من ${p.name}`, 'good');
+    }
+    const { g, a } = this.attackPower(p, m.units, !!gen, def, to);
     const A = g + a;
     const D = this.defensePower(to, A > 0 ? g / A : 0.5, p);
     const lossesA = emptyUnits(), lossesD = emptyUnits();
@@ -1044,6 +1057,7 @@ class Game {
     const side = this.partyOf(p.id), crisisFight = side && def && this.partyOf(def.id) && this.partyOf(def.id) !== side;
     // missiles are spent whatever happens
     const missiles = m.units.missile;
+    if (sumUnits(m.units) === 0) return;
     if (A > D) {
       const ratio = Math.pow(D / A, 1.5) * (gen && gen.type === 'speed' ? 0.85 : 1);
       for (const u in m.units) { lossesA[u] = Math.min(m.units[u], Math.round(m.units[u] * ratio)); m.units[u] -= lossesA[u]; }
@@ -1189,4 +1203,4 @@ class Game {
   }
 }
 
-module.exports = { Game, FACTIONS, UNITS, BUILDINGS, TERR, EVENTS, RES, TECHS, GENERALS, CRISIS_ACTIONS, PERMANENT, MAP_W, MAP_H, WORLD_DRAW, GAME_MINUTES, REL, emptyUnits, sumUnits, dist };
+module.exports = { RIVALRIES, GENERIC_CRISES, Game, FACTIONS, UNITS, BUILDINGS, TERR, EVENTS, RES, TECHS, GENERALS, CRISIS_ACTIONS, PERMANENT, MAP_W, MAP_H, WORLD_DRAW, GAME_MINUTES, REL, emptyUnits, sumUnits, dist };

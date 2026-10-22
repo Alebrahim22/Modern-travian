@@ -22,6 +22,7 @@
         <li><b>أول فريق يوصل لهدف النقاط يفوز</b>، وإذا خلص الوقت يفوز صاحب أعلى نقاط.</li>
         <li>جنّد جيش ← احتل مدن ونفط ومناجم لتقوي اقتصادك ← احتل مراكز ⭐ ودافع عنها.</li>
       </ol>
+      <button class="block" onclick="showGuide()">📖 دليل اللعبة الكامل (الأزمات، التحالفات، الأسلحة...)</button>
     </div>
     <label>اسمك</label>
     <input id="nameInput" maxlength="20" placeholder="اكتب اسمك">
@@ -82,6 +83,7 @@
       </div>
     </div>
     <p id="waitHost" class="sub">بانتظار صاحب الغرفة لبدء المباراة...</p>
+    <div class="row"><button onclick="showGuide()">📖 دليل اللعبة</button><button class="danger" onclick="leaveGame()">🚪 خروج من الغرفة</button></div>
   </div>
 </section>
 
@@ -90,7 +92,8 @@
   <header id="topbar">
     <div id="resBar"></div>
     <div id="topBtns">
-      <button class="icon-btn" onclick="showTutorial(0)" title="كيف ألعب؟">❓</button>
+      <button class="icon-btn" onclick="showGuide()" title="دليل اللعبة">❓</button>
+      <button class="icon-btn" onclick="showMenu()" title="القائمة: إيقاف مؤقت، إعادة، خروج">⏸️</button>
       <button class="icon-btn" data-theme-toggle title="الوضع الفاتح / الداكن">🌓</button>
     </div>
   </header>
@@ -134,7 +137,10 @@
   <div id="toast"></div>
   <div id="winner" class="hidden"></div>
   <div id="tutorial" class="hidden"></div>
+  <div id="pauseOv" class="hidden"></div>
+  <div id="menu" class="hidden" onclick="if(event.target===this)this.classList.add('hidden')"></div>
 </section>
+<div id="guide" class="hidden"><div class="guide-card"><div class="guide-head"><b>📖 دليل اللعبة</b><button class="icon-btn" onclick="document.getElementById('guide').classList.add('hidden')" aria-label="إغلاق">✕</button></div><div id="guideBody"></div></div></div>
 
 <script src="client.js"></script>
 </body>

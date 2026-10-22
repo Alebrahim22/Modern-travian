@@ -3,8 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
-const { Game, FACTIONS, UNITS, BUILDINGS, TERR, RES, TECHS, GENERALS, CRISIS_ACTIONS, MAP_W, MAP_H, WORLD_DRAW } = require('./game');
-const META = { FACTIONS, UNITS, BUILDINGS, TERR, RES, TECHS, GENERALS, CRISIS_ACTIONS, MAP_W, MAP_H, WORLD_DRAW };
+const { Game, FACTIONS, UNITS, BUILDINGS, TERR, RES, TECHS, GENERALS, CRISIS_ACTIONS, MAP_W, MAP_H, WORLD_DRAW, RIVALRIES, GENERIC_CRISES, EVENTS, PERMANENT, REL } = require('./game');
+const META = { FACTIONS, UNITS, BUILDINGS, TERR, RES, TECHS, GENERALS, CRISIS_ACTIONS, MAP_W, MAP_H, WORLD_DRAW, RIVALRIES, GENERIC_CRISES, EVENTS, PERMANENT, REL };
 const { botTurn } = require('./bot');
 
 const PORT = process.env.PORT || 3000;
@@ -101,6 +101,7 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (m.type === 'leave') return leaveRoom(room, me, ws);
     if (!room.started) {
       const isHost = room.host === me.id;
       if (m.type === 'setFaction' && FACTIONS[m.faction]) me.faction = m.faction;
@@ -129,7 +130,19 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (m.type === 'pause' && room.host === me.id) {
+      room.paused = m.on ? { by: me.name } : null;
+      for (const p of room.players) pushState(room, p);
+      return;
+    }
+    if (m.type === 'restart' && room.host === me.id) {
+      room.started = false; room.game = null; room.paused = null;
+      for (const p of room.players) send(p.ws, { type: 'restarted' });
+      broadcastLobby(room);
+      return;
+    }
     if (m.type === 'cmd') {
+      if (room.paused) return err('اللعبة متوقفة مؤقتاً');
       const e = room.game.cmd(me.id, m.cmd || {});
       if (e) err(e);
       else pushState(room, me);
@@ -139,7 +152,25 @@ wss.on('connection', (ws) => {
   ws.on('close', () => { if (room && !room.started) broadcastLobby(room); });
 });
 
-function pushState(room, p) { if (p.ws) send(p.ws, { type: 'state', state: room.game.view(p.id) }); }
+function pushState(room, p) {
+  if (p.ws) send(p.ws, { type: 'state', state: { ...room.game.view(p.id), paused: room.paused, host: room.host } });
+}
+// leaving a running match hands the country to a bot so the other players keep their game
+function leaveRoom(room, me, ws) {
+  me.ws = null; me.token = null;
+  if (room.started) {
+    me.bot = true; me.name += ' 🤖';
+    const gp = room.game.players[me.id];
+    if (gp) { gp.bot = true; gp.name = me.name; gp.rel = gp.rel || {}; room.game.addLog(null, `🚪 ${me.name.replace(' 🤖', '')} غادر المباراة وتسلّم بوت قيادة دولته`, 'warn'); }
+  } else room.players = room.players.filter((p) => p !== me);
+  const humans = room.players.filter((p) => !p.bot);
+  if (!humans.length) { rooms.delete(room.code); }
+  else {
+    if (room.host === me.id) { room.host = humans[0].id; if (room.paused) room.paused = null; }
+    if (!room.started) broadcastLobby(room);
+  }
+  send(ws, { type: 'left' });
+}
 
 let last = Date.now(), botClock = 0;
 setInterval(() => {
@@ -153,6 +184,7 @@ setInterval(() => {
     if (idle && now - (room.lastActive || room.created) > 30 * 60 * 1000) { rooms.delete(code); continue; }
     if (!idle) room.lastActive = now;
     if (!room.started) continue;
+    if (room.paused) { for (const p of room.players) if (!p.bot) pushState(room, p); continue; }
     room.game.tick(dt);
     if (runBots) for (const p of room.players) if (p.bot) botTurn(room.game, p.id);
     for (const p of room.players) if (!p.bot) pushState(room, p);

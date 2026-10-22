@@ -1,7 +1,7 @@
 // Simple AI opponent. It reads the full game state (bots don't need fog of war to be fair to friends).
 const { UNITS, RES, REL, TECHS, PERMANENT, emptyUnits, sumUnits, dist } = require('./game');
 
-const ATTACKERS = ['inf', 'tank', 'jet', 'missile'];
+const ATTACKERS = ['inf', 'tank', 'jet', 'heli', 'sf', 'arty', 'bomber', 'missile'];
 const TECH_ORDER = ['logistics', 'armor', 'agri', 'missiles', 'ew', 'satellites', 'nuclear'];
 
 function estDefense(g, t, p) { return g.defensePower(t, 0.8, p); }
@@ -102,11 +102,15 @@ function botTurn(g, pid) {
   if (p.queue.length < 2 && !hungry && milQ < pop * 0.8) {
     const r = Math.random();
     let u = r < 0.45 ? 'inf' : r < 0.75 ? 'tank' : r < 0.9 ? 'jet' : 'sam';
+    if (r < 0.45 && Math.random() < 0.25) u = p.techs.logistics ? 'sf' : 'heli';
+    else if (r >= 0.45 && r < 0.75 && p.techs.armor && Math.random() < 0.3) u = 'arty';
+    else if (u === 'jet' && p.techs.ew && Math.random() < 0.4) u = 'bomber';
+    else if (u === 'sam' && p.techs.satellites && Math.random() < 0.35) u = 'abm';
     if (p.techs.missiles && Math.random() < 0.15) u = 'missile';
     const c = g.unitCost(p, u);
     const afford = Math.min(...RES.map((k) => (c[k] ? Math.floor(p.res[k] / c[k]) : 999)));
     const room = Math.floor((pop * 0.8 - milQ) / UNITS[u].crew);
-    const n = Math.min(afford, room, u === 'inf' ? 15 : u === 'missile' ? 2 : 5);
+    const n = Math.min(afford, room, u === 'inf' || u === 'sf' ? 15 : u === 'missile' || u === 'bomber' ? 2 : 5);
     if (n > 0) g.cmd(pid, { type: 'train', unit: u, count: n });
   }
 

@@ -64,6 +64,13 @@ function handle(m) {
   } else if (m.type === 'chat') {
     ui.chat.push(m); if (ui.chat.length > 100) ui.chat.shift();
     if (S) renderPanel(true);
+  } else if (m.type === 'restarted') {
+    S = null; ui.winnerShown = false; ui.mapKey = null; ui.selected = null; ui.mode = null; ui.sheet = false; ui.lastHtml = null;
+    for (const id of ['winner', 'pauseOv', 'menu']) $('#' + id).classList.add('hidden');
+    show('lobby'); if (lobby) renderLobby();
+    toast('🔄 تمت إعادة المباراة. عدّلوا الإعدادات وابدأوا من جديد', true);
+  } else if (m.type === 'left') {
+    goHome();
   } else if (m.type === 'error') {
     toast(m.text);
     if (/استعادة|غير موجودة/.test(m.text)) { localStorage.removeItem('session'); show('home'); }
@@ -77,6 +84,52 @@ function show(id) {
 function toast(t, ok) {
   const el = $('#toast'); el.textContent = t; el.classList.add('show'); el.classList.toggle('ok', !!ok);
   clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+function goHome() {
+  localStorage.removeItem('session');
+  if (ws) { ws.onclose = null; try { ws.close(); } catch {} }
+  location.href = location.pathname;
+}
+window.leaveGame = () => {
+  if (ws && ws.readyState === 1) send({ type: 'leave' });
+  setTimeout(goHome, 400);
+};
+
+// ---------------- menu & pause ----------------
+const isHost = () => S && S.host === myId;
+window.showMenu = (confirm) => {
+  const el = $('#menu'), host = isHost(), paused = S && S.paused;
+  let h = '<div class="card">';
+  if (confirm === 'leave') {
+    h += `<h3>🚪 متأكد تبي تطلع؟</h3><p class="note">دولتك بيستلمها بوت يكمل اللعب عنك، وما تقدر ترجع لنفس المباراة.</p>
+      <button class="danger" onclick="leaveGame()">نعم، اطلع</button><button onclick="showMenu()">رجوع</button>`;
+  } else if (confirm === 'restart') {
+    h += `<h3>🔄 إعادة المباراة؟</h3><p class="note">المباراة الحالية بتنتهي لكل اللاعبين وترجعون لغرفة الانتظار بنفس اللاعبين.</p>
+      <button class="danger" onclick="send({type:'restart'})">نعم، أعد المباراة</button><button onclick="showMenu()">رجوع</button>`;
+  } else {
+    h += `<h3>⚙️ القائمة</h3>`;
+    if (host) h += paused ? `<button class="primary" onclick="setPause(false)">▶️ استئناف اللعب</button>` : `<button class="primary" onclick="setPause(true)">⏸️ إيقاف مؤقت</button>`;
+    else h += `<p class="note">الإيقاف المؤقت وإعادة المباراة بيد صاحب الغرفة 👑</p>`;
+    h += `<button onclick="showGuide()">📖 دليل اللعبة الكامل</button><button onclick="$('#menu').classList.add('hidden');showTutorial(0)">🎓 الشرح السريع</button>
+      <button data-theme-toggle-alt onclick="document.querySelector('#topBtns [data-theme-toggle]').click()">🌓 فاتح / داكن</button>`;
+    if (host) h += `<button onclick="showMenu('restart')">🔄 إعادة المباراة</button>`;
+    h += `<button class="danger" onclick="showMenu('leave')">🚪 الخروج من المباراة</button><button onclick="$('#menu').classList.add('hidden')">إغلاق</button>`;
+  }
+  el.innerHTML = h + '</div>';
+  el.classList.remove('hidden');
+};
+window.setPause = (on) => { send({ type: 'pause', on }); $('#menu').classList.add('hidden'); };
+function renderPause() {
+  const el = $('#pauseOv'), p = S.paused;
+  el.classList.toggle('hidden', !p || !!S.winner);
+  if (!p) return;
+  const key = p.by + isHost();
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.innerHTML = `<div class="card"><div class="tut-icon">⏸️</div><h2>اللعبة متوقفة مؤقتاً</h2><p class="sub">أوقفها ${esc(p.by)}. الوقت والإنتاج والجيوش كلها واقفة.</p>
+    ${isHost() ? '<button class="primary" onclick="setPause(false)">▶️ استئناف اللعب</button>' : '<p class="sub">بانتظار صاحب الغرفة يستأنف...</p>'}
+    <button onclick="showGuide()">📖 اقرأ الدليل وأنت تنتظر</button><button onclick="showMenu()">⚙️ القائمة</button></div>`;
 }
 
 // ---------------- home ----------------
@@ -294,6 +347,7 @@ function renderGame() {
     $('#winner').innerHTML = `<div class="card"><h1>${won ? '🏆 انتصرت!' : '🏳️ انتهت المباراة'}</h1><p>الفائز: <b>${S.winner.names.map(esc).join(' و ')}</b></p><p class="sub">${S.winner.why}</p><button class="primary" onclick="localStorage.removeItem('session');location.href=location.pathname">مباراة جديدة</button> <button onclick="document.getElementById('winner').classList.add('hidden')">عرض الخريطة</button></div>`;
     $('#winner').classList.remove('hidden');
   }
+  renderPause();
   renderPanel();
 }
 ui.sheetVisible = () => !isMobile() || ui.sheet;
@@ -363,6 +417,7 @@ const TABS = {
       }
       const maxN = Math.min(500, ...Object.keys(c.cost).filter((r) => c.cost[r]).map((r) => Math.floor(m.res[r] / c.cost[r])));
       h += `<div class="box"><h4><span>${u.icon} ${u.name}</span></h4>
+        <div class="stats">${UNIT_NOTES[k] || ''}</div>
         <div class="stats">⚔️ هجوم ${u.att}${u.air ? ' (جوي)' : ''} · 🛡️ دفاع بري ${u.defG} · دفاع جوي ${u.defA} · 🏃 سرعة ${u.speed} · 🌾 ${u.upkeep}/د · 👥 ${u.crew}${u.oneShot ? ' · يُستهلك عند الهجوم' : ''}</div>
         <div class="cost">${costHtml(c.cost)} · ⏱️${fmtTime(c.time)} للوحدة</div>
         <div class="actions">${stepper('train-' + k, 1, maxN, 1)}
@@ -572,8 +627,7 @@ const TABS = {
     const dots = { dip: S.proposalsIn.length > 0, chat: ui.chat.length > ui.seenChat, moves: S.movements.some((x) => x.hostile), log: !$('#logDot').classList.contains('hidden') };
     const items = [['moves', '🚀', 'التحركات'], ['tech', '🔬', 'الأبحاث والقادة'], ['trade', '⚖️', 'التجارة'], ['dip', '🤝', 'الدبلوماسية'], ['log', '📜', 'الأحداث'], ['chat', '💬', 'الدردشة']];
     return `<div class="more-grid">${items.map(([k, i, n]) => `<button data-goto="${k}"><i>${i}</i>${n}${dots[k] ? '<span class="dot"></span>' : ''}</button>`).join('')}
-      <button onclick="showTutorial(0)"><i>❓</i>كيف ألعب</button><button data-theme-toggle-alt onclick="document.querySelector('#topBtns [data-theme-toggle]').click()"><i>🌓</i>فاتح / داكن</button>
-      <button onclick="selectTerr(S.me.capital);focusTerr(S.me.capital)"><i>🏠</i>عاصمتي</button></div>`;
+      <button onclick="showGuide()"><i>📖</i>دليل اللعبة</button><button onclick="showMenu()"><i>⏸️</i>إيقاف / خروج</button><button onclick="selectTerr(S.me.capital);focusTerr(S.me.capital)"><i>🏠</i>عاصمتي</button></div>`;
   },
   chat() {
     const list = ui.chat.map((c) => `<div class="log-item">${c.teamOnly ? '<span class="tag">للفريق</span> ' : ''}<b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('');
@@ -751,13 +805,99 @@ $('#tabBody').addEventListener('click', (e) => {
 });
 $('#tabBody').addEventListener('change', (e) => { if (e.target.id === 'withGeneral') ui.withGeneral = e.target.checked; });
 
+// ---------------- full guide ----------------
+const UNIT_NOTES = {
+  inf: 'رخيصة وسريعة التجنيد، أساس أي جيش ودفاع جيد ضد البر.',
+  tank: 'ضربة برية قوية ودفاع بري ممتاز.',
+  sam: 'لا يهاجم، لكنه يصطاد الطائرات والمروحيات والصواريخ. ضعه في مواقعك المهمة.',
+  jet: 'هجوم جوي قوي وأسرع وحدة قتالية.',
+  drone: 'للاستطلاع فقط: يكشف حامية العدو قبل ما تهاجم.',
+  heli: 'هجوم جوي أرخص من المقاتلة وسريع، بدون أي بحث.',
+  sf: 'سريعة جداً ورخيصة بالفولاذ، ممتازة للهجمات الخاطفة على مواقع بعيدة.',
+  arty: 'بطيئة وضعيفة دفاعياً، لكن هجومها +50٪ على مراكز القيادة ⭐ والعواصم. سلاح الحصار.',
+  abm: 'كل وحدة تُسقط صاروخاً باليستياً قبل وصوله، ودفاعها الجوي قوي.',
+  bomber: 'أقوى هجوم جوي في اللعبة. غالية، وتحتاج بحث الحرب الإلكترونية.',
+  missile: 'ضربة هائلة تُستهلك عند الإطلاق ولا تحتل الموقع. الدفاع الصاروخي 🛡️ يسقطها.',
+};
+const flagOf = (f) => meta.FACTIONS[f]?.flag || '';
+function guideHtml() {
+  const U = meta.UNITS, T = meta.TECHS, R = meta.REL || { trade: 25, pact: 50, ally: 75, hostile: -30 };
+  const cost = (c) => Object.keys(c).filter((r) => c[r]).map((r) => RES_ICONS[r] + c[r]).join(' ');
+  const sec = (title, body, open) => `<details${open ? ' open' : ''}><summary>${title}</summary><div>${body}</div></details>`;
+  const CA = meta.CRISIS_ACTIONS;
+  let h = '';
+  h += sec('🏆 الهدف وكيف تفوز', `<ul>
+    <li>على الخريطة <b>مراكز قيادة ⭐</b>. كل مركز يملكه فريقك يعطيه <b>10 نقاط نصر كل دقيقة لعب</b>.</li>
+    <li><b>أول فريق يوصل لهدف النقاط يفوز فوراً</b>. الهدف يظهر في البطاقة أعلى الخريطة.</li>
+    <li>إذا خلص الوقت قبل ما أحد يوصل، يفوز <b>الفريق صاحب أعلى نقاط</b>.</li>
+    <li>نقاط إضافية من الأزمات الدولية: الوساطة الناجحة +40، الفوز بالأزمة +40، دعم الطرف الفائز +20، كل انتصار عسكري على خصمك في الأزمة +10.</li>
+    <li>الحلفاء نقاطهم مشتركة، فالتحالف الذكي يقرّبك من الفوز.</li></ul>
+    <div class="ex">💡 الخطة الأساسية: وسّع اقتصادك أول 20 دقيقة (فترة الحماية) على المواقع المحايدة، ثم احتل مراكز ⭐ وخل فيها دفاع قوي، وراقب المتصدر.</div>`, true);
+  h += sec('💰 الموارد والسكان والمباني', `<ul>
+    <li>4 موارد: 💰 مال، 🛢️ نفط، 🔩 فولاذ، 🌾 غذاء. تنتجها عاصمتك وكل موقع تحتله (المدن 🏙️ مال، حقول النفط 🛢️، المناجم ⛏️ فولاذ، المزارع 🌾 غذاء).</li>
+    <li>👥 <b>السكان</b>: كل جندي ياخذ من سكانك. جيش أكبر = عمال مدنيين أقل = إنتاج أقل (الإنتاجية تظهر فوق).</li>
+    <li>🌾 كل وحدة تاكل غذاء كل دقيقة. لو خلص الغذاء يبدأ الجنود <b>بالانشقاق</b>.</li></ul>
+    <b>المباني (تطوير من قاعدتي):</b><ul>${Object.values(meta.BUILDINGS).map((b) => `<li>${b.icon} <b>${b.name}</b>: ${b.desc}</li>`).join('')}</ul>`);
+  h += sec('🪖 الجيوش والأسلحة', `<table class="utable"><tr><th>الوحدة</th><th>⚔️</th><th>🛡️ بري/جوي</th><th>🏃</th><th>يحتاج</th></tr>${Object.entries(U).map(([k, u]) =>
+    `<tr><td><b>${u.icon} ${u.name}</b><br><small class="sub">${UNIT_NOTES[k] || ''}</small><br><small class="sub">${cost(u.cost)}</small></td><td>${u.att}${u.air ? ' جوي' : ''}</td><td>${u.defG} / ${u.defA}</td><td>${u.speed}</td><td>${u.req ? T[u.req].icon + ' ' + T[u.req].name : 'متاح'}</td></tr>`).join('')}</table>
+    <div class="ex">🔓 الوحدات المقفلة تنفتح من <b>الأبحاث</b> (المزيد ← الأبحاث). بعض الدول عندها خصومات أو قوة إضافية لوحدات معينة.</div>`);
+  h += sec('⚔️ القتال والاحتلال', `<ul>
+    <li>اضغط على موقع ← <b>هاجم</b> ← اختر القوات. الجيش يمشي بسرعة <b>أبطأ وحدة</b> فيه.</li>
+    <li>لو هجومك أقوى من الدفاع تحتل الموقع وتخسر جزء من قواتك (كل ما كان الفرق أكبر خسرت أقل). لو أضعف يُباد جيشك.</li>
+    <li>الهجوم الجوي يصطدم بالدفاع الجوي (📡 و🛡️)، والهجوم البري بالدفاع البري (🚜 و🪖). نوّع جيشك حسب حامية العدو.</li>
+    <li>مراكز ⭐ دفاعها +25٪. المواقع القريبة من عاصمة صاحبها دفاعها +30٪ (أرض الوطن).</li>
+    <li>🏛️ <b>العواصم لا تُحتل</b>، لكن اقتحامها يسرق 30٪ من موارد صاحبها ويضعف تحصيناته ويؤخر سلاحه النهائي.</li>
+    <li>🛡️ أول 20 دقيقة لعب ممنوع مهاجمة اللاعبين، فقط المواقع المحايدة.</li>
+    <li>🌫️ ما تشوف حاميات الأعداء البعيدة. أرسل درونز 🛸 للاستطلاع أو طوّر الرادار.</li></ul>`);
+  h += sec('🔥 الأزمات الدولية', `<p>كل 16 إلى 22 دقيقة تقريباً تنفجر أزمة بين دولتين غير متحالفتين وتستمر 10 دقائق. الأزمات حقيقية حسب الدول في المباراة:</p>
+    <ul>${(meta.RIVALRIES || []).map((r) => `<li>${flagOf(r.pair[0])} ${flagOf(r.pair[1])} ${r.title}</li>`).join('')}<li>وأزمات عامة: ${(meta.GENERIC_CRISES || []).join('، ')}</li></ul>
+    <b>لو كنت أحد طرفي الأزمة:</b><ul>
+    <li>اقتصادك ينقص 10٪ (اقتصاد حرب) إلا إذا اخترت التهدئة.</li>
+    <li>⚔️ <b>تصعيد</b>: هجومك على خصمك +15٪، وكل انتصار عليه +10 نقاط ويرفع دعمك. لكن يصعّب الوساطة.</li>
+    <li>🕊️ <b>تهدئة</b>: اقتصادك يرجع طبيعي، ولو انتهت الأزمة بسلام تاخذ +20 نقطة.</li></ul>
+    <b>لو كنت طرف ثالث، تقدر تختار موقف واحد:</b><ul>
+    <li>🕊️ <b>وساطة</b> (${cost(CA.mediate.cost)}): علاقتك تتحسن مع الطرفين. لو نجح السلام تاخذ +40 نقطة.</li>
+    <li>🪖 <b>دعم عسكري</b> (${cost(CA.military.cost)}): الموارد تروح للطرف الي تدعمه وهجومه يزيد 10٪. علاقتك معه +20 ومع خصمه -30.</li>
+    <li>📢 <b>دعم إعلامي وسياسي</b> (${cost(CA.media.cost)}): رخيص. علاقتك مع الطرف +10 ومع خصمه -12.</li></ul>
+    <b>كيف تنتهي؟</b><ul><li>سلام: إذا اجتمعت وساطات كافية (اثنتين، وتزيد واحدة لكل طرف مصعّد)، أو إذا الطرفين هدّؤوا مع وساطة واحدة.</li>
+    <li>غير كذا لما يخلص الوقت يفوز الطرف الي دعمه أكبر (+40) وداعموه (+20 لكل واحد).</li></ul>
+    <div class="ex">مثال: أزمة كشمير بين 🇮🇳 الهند و🇵🇰 باكستان. 🇸🇦 السعودية تقدر تتوسط وتكسب الطرفين و+40 نقطة لو نجح السلام. أو تدعم باكستان عسكرياً فتقوى باكستان وتتحسن العلاقة معها، بس الهند بتزعل.</div>`);
+  h += sec('🏛️ مجلس الأمن والعقوبات', `<ul>
+    <li>من الدقيقة 35 وكل 25 دقيقة، إذا فيه 3 فرق أو أكثر، يصوّت المجلس على معاقبة <b>الفريق المتصدر</b>.</li>
+    <li>العقوبات: إنتاج -25٪ وإغلاق السوق 10 دقائق.</li>
+    <li>تنجح لو صوّتت الأغلبية "مع"، إلا إذا استخدم عضو دائم <b>الفيتو</b>: ${(meta.PERMANENT || []).map(flagOf).join(' ')}.</li>
+    <li>لو أنت المتصدر: اطلب من حليف أو دولة صديقة عضو دائم يستخدم الفيتو لك.</li></ul>`);
+  h += sec('🤝 التحالفات والدبلوماسية', `<ul>
+    <li>الحلفاء (نفس الفريق) <b>يتشاركون الرؤية ونقاط النصر</b> ويفوزون مع بعض، وما يقدرون يهاجمون بعض.</li>
+    <li>تقدر تحدد الفريق قبل المباراة، أو ترسل <b>عرض تحالف</b> أثناء اللعب من الدبلوماسية. أقصى حجم للتحالف نص عدد الدول.</li>
+    <li>تقدر تنسحب من التحالف بأي وقت، بس البوتات تزعل منك.</li></ul>
+    <b>العلاقات مع البوتات (من -100 إلى 100):</b><ul>
+    <li>${R.trade}+ اتفاقية تجارية (سعر سوق أفضل وتقبل عروضك بسهولة) · ${R.pact}+ عدم اعتداء (ما يهاجمك) · ${R.ally}+ يقبل التحالف.</li>
+    <li>ترفعها بـ 🎁 الهدايا (لها حد أقصى)، و📌 <b>المهام</b> الي يطلبها البوت، والتجارة، ومواقفك في الأزمات.</li>
+    <li>تنهار لو هاجمته أو دعمت خصمه، وتحت ${R.hostile} يرفض التعامل معك.</li></ul>`);
+  h += sec('⚖️ التجارة', `<ul><li>🏪 <b>السوق العام</b>: بدّل أي مورد بآخر فوراً بسعر حسب دولتك (يتحسن مع كل اتفاقية تجارية).</li>
+    <li>📢 <b>العروض</b>: انشر عرض للاعبين (أعطي كذا مقابل كذا). مواردك تنحجز لين أحد يقبل أو تلغي.</li></ul>`);
+  h += sec('🔬 الأبحاث والقادة والسلاح النهائي', `<ul>${Object.values(T).map((t) => `<li>${t.icon} <b>${t.name}</b> (المستوى ${t.tier}${t.req.length ? '، يحتاج ' + t.req.map((r) => T[r].name).join(' + ') : ''}): ${t.desc}</li>`).join('')}</ul>
+    <b>🎖️ القادة:</b><ul>${Object.values(meta.GENERALS).map((g) => `<li>${g.icon} <b>${g.name}</b>: ${g.desc}</li>`).join('')}<li>القائد يترقى مع الانتصارات، ويُقتل إذا انهزم جيشه.</li></ul>
+    <b>☢️ السلاح النهائي:</b> بعد بحث المشروع السري، يُسمح ببنائه من الدقيقة 45. كل الدول تشوف تقدمه، واقتحام عاصمتك يؤخره 40٪. لما يجهز تقدر تبيد حامية أي موقع للعدو مرة وحدة، بس كل الدول بتستنكر.`);
+  h += sec('🌍 الأحداث العالمية', `<p>كل فترة يصير حدث عالمي يستمر 8 دقائق ويغيّر الموازين للكل:</p><ul>${(meta.EVENTS || []).map((e) => `<li><b>${e.name}</b>: ${e.desc}</li>`).join('')}</ul>`);
+  h += sec('🏳️ الدول ومميزاتها', `<ul>${Object.values(meta.FACTIONS).map((f) => `<li>${f.flag} <b>${f.name}</b>: ${f.pros.join('، ')} · ⚠️ ${f.cons.join('، ')}</li>`).join('')}</ul>`);
+  return h;
+}
+window.showGuide = () => {
+  $('#menu')?.classList.add('hidden');
+  $('#guideBody').innerHTML = meta.UNITS ? guideHtml() : '<p class="sub">جاري التحميل...</p>';
+  $('#guide').classList.remove('hidden');
+  $('#guideBody').scrollTop = 0;
+};
+
 // ---------------- tutorial ----------------
 const TUTORIAL = [
   ['🏆', '<b>هدف اللعبة</b><br>على الخريطة مراكز قيادة <b>⭐</b>. كل مركز تملكه يعطي فريقك <b>10 نقاط نصر كل دقيقة</b>.<br>أول فريق يوصل للهدف يفوز، وإذا خلص الوقت يفوز الأعلى نقاطاً. البطاقة أعلى الخريطة تعرض تقدّمك دائماً.'],
   ['🏭', '<b>١. جنّد جيشك</b><br>من زر <b>الجيش</b> تحت. المشاة رخيصة، الدبابات قوية، المقاتلات سريعة.<br>انتبه: كل جندي يأكل 🌾 غذاء ويقلل العمال المدنيين.'],
   ['⚔️', '<b>٢. هاجم واحتل</b><br>اضغط على أي موقع في الخريطة ثم <b>هاجم</b>. ابدأ بالمواقع الرمادية المحايدة القريبة: مدن 🏙️ ونفط 🛢️ ومناجم ⛏️ ومزارع 🌾 تزيد دخلك.'],
   ['⭐', '<b>٣. سيطر على مراكز القيادة</b><br>لما يقوى جيشك احتل مراكز ⭐ وخلّ فيها حامية قوية، لأن الأعداء بيحاولون ياخذونها منك.'],
-  ['🛡️', '<b>نصائح</b><br>أول 20 دقيقة لا أحد يقدر يهاجم اللاعبين، استغلها للتوسع.<br>الشريط الأزرق 💡 أعلى الخريطة يقترح عليك الخطوة الجاية دائماً. وتقدر تتحالف وتتاجر من <b>المزيد</b>.'],
+  ['🛡️', '<b>نصائح</b><br>أول 20 دقيقة لا أحد يقدر يهاجم اللاعبين، استغلها للتوسع.<br>الشريط الأزرق 💡 أعلى الخريطة يقترح عليك الخطوة الجاية دائماً. وتقدر تتحالف وتتاجر من <b>المزيد</b>.<br>📖 الدليل الكامل (الأزمات، التحالفات، الأسلحة) من زر ❓ فوق، والإيقاف المؤقت والخروج من زر ⏸️.'],
 ];
 window.showTutorial = (i) => {
   const el = $('#tutorial');
