@@ -65,6 +65,34 @@ function botTech(g, p) {
   }
 }
 
+// build bases on held command centres (then farms) and keep them garrisoned
+function botBases(g, p, hungry) {
+  const pid = p.id;
+  const mine = g.terr.filter((t) => t.owner === pid && t.type !== 'capital');
+  const prio = (t) => (t.type === 'strategic' ? 3 : t.type === 'farm' ? 2 : 1);
+  if (!p.baseBuild && Math.random() < 0.3) {
+    const bases = mine.filter((t) => t.base > 0);
+    let t = null;
+    if (bases.length < g.baseLimit(p)) t = mine.filter((x) => !x.base).sort((a, b) => prio(b) - prio(a))[0];
+    if (!t || prio(t) < 2) t = bases.filter((x) => x.base < 2 && x.type === 'strategic')[0] || t;
+    if (t) {
+      const c = g.BASE.cost[(t.base || 0) + 1];
+      if (c && RES.every((r) => p.res[r] >= c[r] + 400)) g.cmd(pid, { type: 'buildBase', terr: t.id });
+    }
+  }
+  if (hungry || Math.random() > 0.25) return;
+  const pop = g.population(p), milQ = g.military(p, true);
+  for (const t of mine) {
+    if (!t.base || p.queue.some((q) => q.at === t.id)) continue;
+    if (g.crew(t.units) > g.siteCap(t) * 0.8) continue;
+    const u = t.base >= 2 && Math.random() < 0.5 ? (Math.random() < 0.5 ? 'tank' : p.techs.satellites ? 'abm' : 'sam') : Math.random() < 0.7 ? 'inf' : 'sam';
+    const c = g.unitCost(p, u, t);
+    const afford = Math.min(...RES.map((k) => (c[k] ? Math.floor(p.res[k] / c[k]) : 999)));
+    const n = Math.min(afford, Math.floor((pop * 0.8 - milQ) / UNITS[u].crew), u === 'inf' ? 10 : 4);
+    if (n > 0) { g.cmd(pid, { type: 'train', unit: u, count: n, at: t.id }); return; }
+  }
+}
+
 function botTurn(g, pid) {
   const p = g.players[pid];
   if (!p || g.winner) return;
@@ -99,7 +127,7 @@ function botTurn(g, pid) {
   }
 
   // keep the factory busy while there is manpower and food
-  if (p.queue.length < 2 && !hungry && milQ < pop * 0.8) {
+  if (p.queue.filter((q) => q.at === p.capital).length < 2 && !hungry && milQ < pop * 0.8) {
     const r = Math.random();
     let u = r < 0.45 ? 'inf' : r < 0.75 ? 'tank' : r < 0.9 ? 'jet' : 'sam';
     if (r < 0.45 && Math.random() < 0.25) u = p.techs.logistics ? 'sf' : 'heli';
@@ -113,6 +141,8 @@ function botTurn(g, pid) {
     const n = Math.min(afford, room, u === 'inf' || u === 'sf' ? 15 : u === 'missile' || u === 'bomber' ? 2 : 5);
     if (n > 0) g.cmd(pid, { type: 'train', unit: u, count: n });
   }
+
+  botBases(g, p, hungry);
 
   // attack the most valuable reachable target we can beat
   if (g.movements.some((m) => m.owner === pid && m.mission === 'attack')) return;

@@ -191,7 +191,6 @@ table.rank tr.me td { font-weight: 700; }
   #sheetHead { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; position: relative; border-bottom: 1px solid var(--line); }
   #sheetHead b { flex: 1; font-size: 17px; }
   #sheetHead .grip { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); width: 40px; height: 4px; border-radius: 2px; background: var(--line); }
-  #tabs { display: none; }
   #tabBody { padding: 10px 12px 16px; }
   #bottomNav { display: flex; background: var(--panel); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); z-index: 6; }
   #bottomNav button { flex: 1; border: 0; border-radius: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 12px; padding: 6px 0 7px; min-height: 56px; position: relative; color: var(--muted); }
@@ -236,3 +235,19 @@ table.rank tr.me td { font-weight: 700; }
 .utable td, .utable th { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: start; vertical-align: top; }
 .utable th { color: var(--muted); font-weight: 600; }
 @media (max-width: 600px) { #guide { padding: 0; } .guide-card { border-radius: 0; border: 0; } }
+
+/* bell + section strip */
+.bell { position: relative; }
+.badge { position: absolute; top: -4px; left: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.loc-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 8px; }
+.loc-chips button { white-space: nowrap; flex: none; min-height: 38px; font-size: 14px; }
+.loc-chips button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.trait { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--chip); margin: 2px 0 2px 4px; }
+.trait.bad { color: var(--bad-text); }
+@media (max-width: 899px) {
+  #tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 6px 8px; gap: 6px; }
+  #tabs::-webkit-scrollbar { display: none; }
+  #tabs button { flex: none; min-height: 38px; font-size: 14px; padding: 6px 12px; border-radius: 19px; }
+  #topBtns [data-theme-toggle] { display: none; }
+  #bottomNav button { font-size: 11px; }
+}

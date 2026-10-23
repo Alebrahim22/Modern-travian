@@ -64,6 +64,7 @@ function handle(m) {
   } else if (m.type === 'chat') {
     ui.chat.push(m); if (ui.chat.length > 100) ui.chat.shift();
     if (S) renderPanel(true);
+    if (S && m.id !== myId && !(ui.tab === 'chat' && ui.sheetVisible())) toast(`💬 ${m.from}: ${m.text.slice(0, 60)}`, true);
   } else if (m.type === 'restarted') {
     S = null; ui.winnerShown = false; ui.mapKey = null; ui.selected = null; ui.mode = null; ui.sheet = false; ui.lastHtml = null;
     for (const id of ['winner', 'pauseOv', 'menu']) $('#' + id).classList.add('hidden');
@@ -265,6 +266,10 @@ function nextTip() {
       return { text: `${meta.TERR[t.type].icon} احتل ${t.name ? esc(t.name) : meta.TERR[t.type].name} القريب لزيادة دخلك.`, label: 'هاجم', go: () => { selectTerr(t.id); focusTerr(t.id); } };
     }
   }
+  const noBase = S.terr.find((t) => t.owner === myId && t.type === 'strategic' && !t.base);
+  if (noBase && !m.baseBuild && m.baseCount < m.baseLimit && canAfford(meta.BASE.cost[1])) {
+    return { text: `🏰 ابنِ قاعدة عسكرية في ${noBase.name ? esc(noBase.name) : 'مركزك'} لتحميه وتصنّع جيشك هناك.`, label: 'ابنِ', go: () => { selectTerr(noBase.id); focusTerr(noBase.id); } };
+  }
   if (!m.upgrade) {
     const B = meta.BUILDINGS, k = Object.keys(B).find((x) => m.buildings[x] < 10 && canAfford(m.upgradeCosts[x].cost));
     if (k) return { text: `🔨 طوّر ${B[k].name} لتقوية قاعدتك.`, label: 'طوّر', go: () => setTab('base') };
@@ -323,6 +328,7 @@ function renderGame() {
   $('#dipDot').classList.toggle('hidden', !dip);
   $('#worldDot').classList.toggle('hidden', !world);
   $('#worldDot2').classList.toggle('hidden', !world);
+  $('#dipDot2').classList.toggle('hidden', !dip);
   if (!ui.mapKey || ui.mapKey !== S.map.W + 'x' + S.map.H) {
     ui.mapKey = S.map.W + 'x' + S.map.H;
     resize();
@@ -339,8 +345,9 @@ function renderGame() {
   const logNew = !(ui.tab === 'log' && ui.sheetVisible()) && lastLog > ui.seenLog;
   $('#logDot').classList.toggle('hidden', !logNew);
   if (ui.tab === 'log' && ui.sheetVisible()) ui.seenLog = lastLog;
-  const chatNew = ui.tab !== 'chat' && ui.chat.length > ui.seenChat;
-  $('#moreDot').classList.toggle('hidden', !(dip || chatNew || incoming.length));
+  const unread = logNew ? S.log.filter((l) => l.t > ui.seenLog).length : 0;
+  $('#bellCount').textContent = unread > 99 ? '99+' : unread;
+  $('#bellCount').classList.toggle('hidden', !unread);
   if (S.winner && !ui.winnerShown) {
     ui.winnerShown = true;
     const won = S.winner.ids.includes(myId);
@@ -377,6 +384,35 @@ function renderPanel(force) {
   updateEta();
 }
 
+// what makes a site special, as small labels
+function siteTraits(t) {
+  const st = meta.SITE[t.type]; if (!st) return '';
+  let h = `<span class="trait">✨ ${st.desc}</span>`;
+  if (t.harsh) h += `<span class="trait bad">🏜️ ${meta.HARSH.desc}</span>`;
+  return h;
+}
+function baseBox(t) {
+  const m = S.me, B = meta.BASE;
+  let h = `<div class="box"><h4><span>🏰 القاعدة العسكرية ${t.base ? `<span class="tag">مستوى ${t.base}</span>` : ''}</span></h4><div>${siteTraits(t)}</div>`;
+  const pct = Math.min(100, (100 * t.crew) / t.cap);
+  h += `<div class="stats">👥 الجنود هنا ${fmt(t.crew)} / السعة ${fmt(t.cap)}${t.crew > t.cap ? ' <b class="neg">· فوق السعة: الإعاشة مضاعفة للزيادة</b>' : ''} · إعاشة ×${t.upkeepMult.toFixed(2)}</div>
+    <div class="bar"><i style="width:${pct}%;${t.crew > t.cap ? 'background:var(--bad)' : ''}"></i></div>`;
+  const bb = m.baseBuild;
+  if (bb && bb.terr === t.id) {
+    h += `<div class="stats">🔨 جاري البناء للمستوى ${bb.level} · متبقي ${fmtTime(bb.remaining)}</div><div class="bar"><i style="width:${100 * (1 - bb.remaining / bb.total)}%"></i></div>`;
+  } else if (t.base < 3) {
+    const lvl = t.base + 1, c = B.cost[lvl];
+    const unlock = { 1: 'مشاة، قوات خاصة، دفاع جوي، درونز', 2: 'دبابات، مروحيات، مدفعية، دفاع صاروخي', 3: 'مقاتلات، قاذفات، صواريخ' }[lvl];
+    const limit = !t.base && m.baseCount >= m.baseLimit;
+    h += `<div class="stats">${t.base ? 'التطوير' : 'البناء'} للمستوى ${lvl} يفتح: ${unlock} · سعة +30 · دفاع +${(meta.SITE[t.type].baseDefense || 1) * 10}٪</div>
+      <div class="cost">${costHtml(c)} · ⏱️${fmtTime(m.baseTimes[lvl])}</div>
+      ${limit ? `<div class="stats neg">وصلت للحد (${m.baseLimit} قواعد). طوّر الاقتصاد لزيادته.</div>` : ''}
+      <button class="${t.base ? '' : 'primary '}block" data-build-base="${t.id}" ${limit || bb || !canAfford(c) ? 'disabled' : ''}>🏗️ ${t.base ? 'تطوير القاعدة' : 'بناء قاعدة عسكرية'}${bb ? ' (جاري بناء قاعدة أخرى)' : ''}</button>`;
+  } else h += '<div class="stats good">القاعدة في أعلى مستوى ✓</div>';
+  if (t.base) h += `<button class="block" data-train-here="${t.id}">🏭 جنّد هنا</button>`;
+  return h + '</div>';
+}
+
 const TABS = {
   base() {
     const B = meta.BUILDINGS, m = S.me;
@@ -404,18 +440,33 @@ const TABS = {
   },
   train() {
     const m = S.me;
-    let h = '<div class="box hint">🪖 جنّد هنا، ثم اضغط على أي موقع في الخريطة واختر <b>هجوم</b>. المشاة 🪖 رخيصة، الدبابات 🚜 قوية برياً، المقاتلات ✈️ سريعة لكن الدفاع الجوي 📡 يصطادها.</div>';
-    if (m.queue.length) {
-      h += `<div class="box"><h4>🏭 طابور التصنيع</h4>` + m.queue.map((q, i) =>
-        `<div class="stats">${meta.UNITS[q.unit].icon} ${meta.UNITS[q.unit].name} × ${q.count}${i === 0 ? ` · التالية خلال ${fmtTime(q.remaining)}` : ''}</div>`).join('') + `</div>`;
+    // where to train: the capital or any of my bases
+    const spots = [S.terr[m.capital], ...S.terr.filter((t) => t.owner === myId && t.base > 0)];
+    if (!spots.some((t) => t.id === ui.trainAt)) ui.trainAt = m.capital;
+    const at = S.terr[ui.trainAt], lvl = at.type === 'capital' ? 3 : at.base;
+    const costs = at.type === 'capital' ? m.unitCosts : m.siteCosts[at.id];
+    let h = `<div class="sub" style="margin-bottom:4px">🏭 أين تصنّع؟</div><div class="loc-chips">${spots.map((t) =>
+      `<button data-train-at="${t.id}" class="${t.id === ui.trainAt ? 'active' : ''}">${t.type === 'capital' ? '🏛️ العاصمة' : `🏰${t.base} ${esc(t.name || meta.TERR[t.type].name)}`}</button>`).join('')}</div>`;
+    if (spots.length === 1) h += '<div class="box hint">💡 ابنِ <b>قواعد عسكرية</b> في المواقع الي تحتلها (اضغط على الموقع ← بناء قاعدة) عشان تصنّع جيشك قريب من الجبهة.</div>';
+    else if (at.type !== 'capital') h += `<div class="stats" style="margin-bottom:6px">${siteTraits(at)}</div>`;
+    const q = m.queue.filter((x) => x.at === at.id);
+    if (q.length) {
+      h += `<div class="box"><h4>⏳ طابور التصنيع هنا</h4>` + q.map((x, i) =>
+        `<div class="stats">${meta.UNITS[x.unit].icon} ${meta.UNITS[x.unit].name} × ${x.count}${i === 0 ? ` · التالية خلال ${fmtTime(x.remaining)}` : ''}</div>`).join('') + `</div>`;
     }
+    const other = m.queue.filter((x) => x.at !== at.id);
+    if (other.length) h += `<div class="stats" style="margin-bottom:6px">ويتم تصنيع ${other.reduce((a, x) => a + x.count, 0)} وحدة في مواقعك الأخرى.</div>`;
     for (const [k, u] of Object.entries(meta.UNITS)) {
-      const c = m.unitCosts[k];
+      const c = costs[k];
       if (u.req && !m.techs[u.req]) {
-        h += `<div class="box locked"><h4><span>${u.icon} ${u.name}</span><span class="tag">🔒 يحتاج بحث ${meta.TECHS[u.req].name}</span></h4></div>`;
+        h += `<div class="box locked"><h4><span>${u.icon} ${u.name}</span><span class="tag">🔒 بحث ${meta.TECHS[u.req].name}</span></h4></div>`;
         continue;
       }
-      const maxN = Math.min(500, ...Object.keys(c.cost).filter((r) => c.cost[r]).map((r) => Math.floor(m.res[r] / c.cost[r])));
+      if (u.tier > lvl) {
+        h += `<div class="box locked"><h4><span>${u.icon} ${u.name}</span><span class="tag">🏰 يحتاج قاعدة مستوى ${u.tier}</span></h4></div>`;
+        continue;
+      }
+      const maxN = Math.max(0, Math.min(500, ...Object.keys(c.cost).filter((r) => c.cost[r]).map((r) => Math.floor(m.res[r] / c.cost[r]))));
       h += `<div class="box"><h4><span>${u.icon} ${u.name}</span></h4>
         <div class="stats">${UNIT_NOTES[k] || ''}</div>
         <div class="stats">⚔️ هجوم ${u.att}${u.air ? ' (جوي)' : ''} · 🛡️ دفاع بري ${u.defG} · دفاع جوي ${u.defA} · 🏃 سرعة ${u.speed} · 🌾 ${u.upkeep}/د · 👥 ${u.crew}${u.oneShot ? ' · يُستهلك عند الهجوم' : ''}</div>
@@ -448,6 +499,9 @@ const TABS = {
         ? `<div class="box"><h4>☢️ تأكيد إطلاق السلاح النهائي على ${terrName(t)}؟</h4><div class="stats">سيُبيد الحامية بالكامل. كل الدول ستستنكر وتسوء علاقاتها معك.</div><div class="row"><button class="danger" data-strike="${t.id}">إطلاق</button><button data-strike-cancel="1">إلغاء</button></div></div>`
         : `<button class="danger" data-strike-ask="${t.id}" style="margin-bottom:8px">☢️ إطلاق السلاح النهائي هنا</button>`;
     }
+    if (t.owner === myId && t.type !== 'capital') h += baseBox(t);
+    if (t.owner === myId && t.type === 'capital') h += `<button class="block" data-train-here="${t.id}">🏭 جنّد في العاصمة</button><button class="block" onclick="setTab('base')">🏛️ مباني العاصمة</button>`;
+    else if (t.owner !== myId && meta.SITE[t.type]) h += `<div class="stats" style="margin-bottom:6px">${siteTraits(t)}</div>`;
     if (t.owner === myId) {
       h += total(t.units) > 0
         ? `<button class="primary block" onclick="startSend(${t.id})">🎯 إرسال قوات من هنا</button>`
@@ -623,12 +677,6 @@ const TABS = {
     }
     return h;
   },
-  more() {
-    const dots = { dip: S.proposalsIn.length > 0, chat: ui.chat.length > ui.seenChat, moves: S.movements.some((x) => x.hostile), log: !$('#logDot').classList.contains('hidden') };
-    const items = [['moves', '🚀', 'التحركات'], ['tech', '🔬', 'الأبحاث والقادة'], ['trade', '⚖️', 'التجارة'], ['dip', '🤝', 'الدبلوماسية'], ['log', '📜', 'الأحداث'], ['chat', '💬', 'الدردشة']];
-    return `<div class="more-grid">${items.map(([k, i, n]) => `<button data-goto="${k}"><i>${i}</i>${n}${dots[k] ? '<span class="dot"></span>' : ''}</button>`).join('')}
-      <button onclick="showGuide()"><i>📖</i>دليل اللعبة</button><button onclick="showMenu()"><i>⏸️</i>إيقاف / خروج</button><button onclick="selectTerr(S.me.capital);focusTerr(S.me.capital)"><i>🏠</i>عاصمتي</button></div>`;
-  },
   chat() {
     const list = ui.chat.map((c) => `<div class="log-item">${c.teamOnly ? '<span class="tag">للفريق</span> ' : ''}<b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('');
     return `<div class="chat-list">${list || '<p class="sub">لا رسائل بعد.</p>'}</div>
@@ -685,8 +733,8 @@ function updateEta() {
   el.textContent = `⏱️ وقت الوصول: ${fmtTime(secs)} · ⚔️ قوة الهجوم: ${fmt(att)}`;
 }
 
-const TAB_TITLES = { base: '🏛️ قاعدتي', train: '🏭 الجيش', site: '📍 الموقع', moves: '🚀 التحركات', tech: '🔬 الأبحاث والقادة', world: '🌍 العالم والترتيب', trade: '⚖️ التجارة', dip: '🤝 الدبلوماسية', log: '📜 الأحداث', chat: '💬 الدردشة', more: '☰ المزيد' };
-const NAV_OF = { base: 'base', train: 'train', world: 'world', site: 'map' };
+const TAB_TITLES = { base: '🏛️ عاصمتي', train: '🏭 الجيش', site: '📍 الموقع', moves: '🚀 التحركات', tech: '🔬 الأبحاث والقادة', world: '🌍 العالم والترتيب', trade: '⚖️ التجارة', dip: '🤝 الدبلوماسية', log: '📜 الأحداث', chat: '💬 الدردشة', more: '☰ المزيد' };
+const NAV_OF = { train: 'train', tech: 'tech', dip: 'dip', world: 'world', site: 'map' };
 
 window.selectTerr = (id) => { ui.selected = id; ui.mode = null; ui.confirmStrike = null; setTab('site'); };
 window.startSend = (from, to) => {
@@ -726,7 +774,7 @@ function syncNav() {
   const open = ui.sheetVisible();
   $('#game').classList.toggle('sheet-open', ui.sheet);
   $('#game').classList.toggle('sheet-full', ui.sheet && ['chat', 'trade', 'dip'].includes(ui.tab));
-  const nav = !isMobile() || open ? (NAV_OF[ui.tab] || 'more') : 'map';
+  const nav = !isMobile() || open ? NAV_OF[ui.tab] : 'map';
   for (const b of document.querySelectorAll('#bottomNav button')) b.classList.toggle('active', b.dataset.nav === nav);
   $('#sheetTitle').textContent = TAB_TITLES[ui.tab] || '';
 }
@@ -736,13 +784,14 @@ window.setTab = (t) => {
   for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('active', b.dataset.tab === t);
   syncNav();
   if (S) { renderPanel(true); $('#tabBody').scrollTop = 0; }
+  document.querySelector(`#tabs [data-tab="${t}"]`)?.scrollIntoView({ inline: 'center', block: 'nearest' });
 };
 window.closeSheet = () => { ui.sheet = false; syncNav(); };
 $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); };
 $('#bottomNav').onclick = (e) => {
   const b = e.target.closest('button'); if (!b) return;
   const n = b.dataset.nav;
-  if (n === 'map' || (ui.sheet && (NAV_OF[ui.tab] || 'more') === n)) return closeSheet();
+  if (n === 'map' || (ui.sheet && NAV_OF[ui.tab] === n)) return closeSheet();
   setTab(n);
 };
 // swipe the sheet header down to close it
@@ -772,6 +821,9 @@ $('#tabBody').addEventListener('click', (e) => {
   const el = e.target.closest('button,[data-goto]'); if (!el) return;
   const d = el.dataset;
   if (d.goto) setTab(d.goto);
+  else if (d.trainAt) { ui.trainAt = Number(d.trainAt); renderPanel(true); }
+  else if (d.trainHere) { ui.trainAt = Number(d.trainHere); setTab('train'); }
+  else if (d.buildBase) cmd({ type: 'buildBase', terr: Number(d.buildBase) });
   else if (d.step) {
     const cur = Number(ui.inputs[d.step] ?? document.querySelector(`#tabBody [data-key="${d.step}"]`)?.value ?? 0);
     const big = cur >= 20 ? 5 : 1; // speed up long presses through big armies
@@ -781,7 +833,7 @@ $('#tabBody').addEventListener('click', (e) => {
   else if (d.up) cmd({ type: 'upgrade', building: d.up });
   else if (d.train) {
     const n = Number(ui.inputs['train-' + d.train] || 1);
-    cmd({ type: 'train', unit: d.train, count: n });
+    cmd({ type: 'train', unit: d.train, count: n, at: ui.trainAt ?? S.me.capital });
     toast(`🏭 أُضيف ${n} ${meta.UNITS[d.train].name} للتصنيع`, true);
   }
   else if (d.market) cmd({ type: 'market', give: ui.inputs['mk-give'] || 'money', get: ui.inputs['mk-get'] || 'food', amount: Number(ui.inputs['mk-amt'] || 0) });
@@ -841,6 +893,17 @@ function guideHtml() {
   h += sec('🪖 الجيوش والأسلحة', `<table class="utable"><tr><th>الوحدة</th><th>⚔️</th><th>🛡️ بري/جوي</th><th>🏃</th><th>يحتاج</th></tr>${Object.entries(U).map(([k, u]) =>
     `<tr><td><b>${u.icon} ${u.name}</b><br><small class="sub">${UNIT_NOTES[k] || ''}</small><br><small class="sub">${cost(u.cost)}</small></td><td>${u.att}${u.air ? ' جوي' : ''}</td><td>${u.defG} / ${u.defA}</td><td>${u.speed}</td><td>${u.req ? T[u.req].icon + ' ' + T[u.req].name : 'متاح'}</td></tr>`).join('')}</table>
     <div class="ex">🔓 الوحدات المقفلة تنفتح من <b>الأبحاث</b> (المزيد ← الأبحاث). بعض الدول عندها خصومات أو قوة إضافية لوحدات معينة.</div>`);
+  const ST = meta.SITE, BC = meta.BASE.cost;
+  h += sec('🏰 القواعد العسكرية وميزات المناطق', `<ul>
+    <li>تقدر تبني <b>قاعدة عسكرية</b> في أي موقع تحتله: اضغط عليه ← بناء قاعدة. بعدها تصنّع جيوشك هناك مباشرة من نفس مخزون مواردك، بدل ما ترسلها من العاصمة.</li>
+    <li>لكل قاعدة طابور تصنيع مستقل، يعني تقدر تصنّع في أكثر من مكان بنفس الوقت. التصنيع في القواعد أبطأ 25٪ من مصانع العاصمة.</li>
+    <li><b>المستويات:</b> 1️⃣ مشاة، قوات خاصة، دفاع جوي، درونز (${cost(BC[1])}) · 2️⃣ يضيف دبابات، مروحيات، مدفعية، دفاع صاروخي (${cost(BC[2])}) · 3️⃣ يضيف مقاتلات، قاذفات، صواريخ (${cost(BC[3])}).</li>
+    <li>كل مستوى يزيد دفاع الموقع 10٪ (20٪ في مراكز ⭐) وسعته 30.</li>
+    <li>الحد الأقصى 3 قواعد، ويزيد واحدة كل 3 مستويات من مبنى الاقتصاد.</li>
+    <li>لو العدو احتل موقع فيه قاعدة، ياخذها وهي <b>ناقصة مستوى</b>.</li></ul>
+    <b>ميزات المناطق:</b><ul>${Object.entries(ST).map(([k, v]) => `<li>${meta.TERR[k].icon} <b>${meta.TERR[k].name}</b>: ${v.desc} · السعة ${v.cap}</li>`).join('')}
+    <li>🏜️ <b>المناطق القاسية</b> (صحاري، قطب، جبال، مثل التبت وسيبيريا والغوار): ${meta.HARSH.desc}.</li></ul>
+    <div class="ex">👥 <b>السعة:</b> كل موقع يتحمل عدد جنود معين. لو حطيت أكثر، الإعاشة تتضاعف على الزيادة. فوزّع جيشك بذكاء، والمزارع أفضل مكان لتجميع جيش كبير.</div>`);
   h += sec('⚔️ القتال والاحتلال', `<ul>
     <li>اضغط على موقع ← <b>هاجم</b> ← اختر القوات. الجيش يمشي بسرعة <b>أبطأ وحدة</b> فيه.</li>
     <li>لو هجومك أقوى من الدفاع تحتل الموقع وتخسر جزء من قواتك (كل ما كان الفرق أكبر خسرت أقل). لو أضعف يُباد جيشك.</li>
@@ -896,7 +959,7 @@ const TUTORIAL = [
   ['🏆', '<b>هدف اللعبة</b><br>على الخريطة مراكز قيادة <b>⭐</b>. كل مركز تملكه يعطي فريقك <b>10 نقاط نصر كل دقيقة</b>.<br>أول فريق يوصل للهدف يفوز، وإذا خلص الوقت يفوز الأعلى نقاطاً. البطاقة أعلى الخريطة تعرض تقدّمك دائماً.'],
   ['🏭', '<b>١. جنّد جيشك</b><br>من زر <b>الجيش</b> تحت. المشاة رخيصة، الدبابات قوية، المقاتلات سريعة.<br>انتبه: كل جندي يأكل 🌾 غذاء ويقلل العمال المدنيين.'],
   ['⚔️', '<b>٢. هاجم واحتل</b><br>اضغط على أي موقع في الخريطة ثم <b>هاجم</b>. ابدأ بالمواقع الرمادية المحايدة القريبة: مدن 🏙️ ونفط 🛢️ ومناجم ⛏️ ومزارع 🌾 تزيد دخلك.'],
-  ['⭐', '<b>٣. سيطر على مراكز القيادة</b><br>لما يقوى جيشك احتل مراكز ⭐ وخلّ فيها حامية قوية، لأن الأعداء بيحاولون ياخذونها منك.'],
+  ['⭐', '<b>٣. سيطر على مراكز القيادة</b><br>لما يقوى جيشك احتل مراكز ⭐ وخلّ فيها حامية قوية، لأن الأعداء بيحاولون ياخذونها منك.<br>🏰 ابنِ <b>قواعد عسكرية</b> في مواقعك عشان تصنّع جيشك عند الجبهة بدل العاصمة.'],
   ['🛡️', '<b>نصائح</b><br>أول 20 دقيقة لا أحد يقدر يهاجم اللاعبين، استغلها للتوسع.<br>الشريط الأزرق 💡 أعلى الخريطة يقترح عليك الخطوة الجاية دائماً. وتقدر تتحالف وتتاجر من <b>المزيد</b>.<br>📖 الدليل الكامل (الأزمات، التحالفات، الأسلحة) من زر ❓ فوق، والإيقاف المؤقت والخروج من زر ⏸️.'],
 ];
 window.showTutorial = (i) => {
@@ -1069,6 +1132,14 @@ function draw() {
     const label = String(n), w = ctx.measureText(label).width + 8;
     ctx.fillStyle = '#000000b0'; ctx.fillRect(t.x - w / 2, t.y + r + 2, w, fs + 3);
     ctx.fillStyle = t.units ? '#fff' : '#aaa'; ctx.fillText(label, t.x, t.y + r + 3 + fs / 2);
+    if (t.base) {
+      ctx.font = `${fs}px sans-serif`;
+      const bx = t.x + r * 0.8, by = t.y - r * 0.8;
+      ctx.fillStyle = PAL.halo; ctx.beginPath(); ctx.arc(bx, by, fs * 0.85, 0, Math.PI * 2); ctx.fill();
+      ctx.fillText('🏰', bx, by + 1);
+      ctx.font = `bold ${fs - 2}px sans-serif`; haloText(String(t.base), bx + fs * 0.75, by - fs * 0.5, PAL.label);
+      ctx.textAlign = 'center';
+    }
     if (t.type === 'capital') {
       ctx.font = `bold ${fs}px sans-serif`;
       haloText(meta.FACTIONS[p.faction].flag + ' ' + p.name, t.x, t.y - r - 8, PAL.label);

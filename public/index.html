@@ -92,6 +92,7 @@
   <header id="topbar">
     <div id="resBar"></div>
     <div id="topBtns">
+      <button class="icon-btn bell" onclick="setTab('log')" title="الأحداث">🔔<span id="bellCount" class="badge hidden"></span></button>
       <button class="icon-btn" onclick="showGuide()" title="دليل اللعبة">❓</button>
       <button class="icon-btn" onclick="showMenu()" title="القائمة: إيقاف مؤقت، إعادة، خروج">⏸️</button>
       <button class="icon-btn" data-theme-toggle title="الوضع الفاتح / الداكن">🌓</button>
@@ -113,7 +114,7 @@
     <aside id="panel">
       <div id="sheetHead"><span class="grip"></span><b id="sheetTitle"></b><button class="icon-btn" onclick="closeSheet()" aria-label="إغلاق">✕</button></div>
       <nav id="tabs">
-        <button data-tab="base" class="active">🏛️ قاعدتي</button>
+        <button data-tab="base" class="active">🏛️ عاصمتي</button>
         <button data-tab="train">🏭 الجيش</button>
         <button data-tab="site">📍 الموقع</button>
         <button data-tab="moves">🚀 تحركات</button>
@@ -129,10 +130,10 @@
   </div>
   <nav id="bottomNav">
     <button data-nav="map" class="active"><i>🗺️</i>الخريطة</button>
-    <button data-nav="base"><i>🏛️</i>قاعدتي</button>
     <button data-nav="train"><i>🏭</i>الجيش</button>
+    <button data-nav="tech"><i>🔬</i>الأبحاث</button>
+    <button data-nav="dip"><i>🤝</i>الدبلوماسية<span id="dipDot2" class="dot hidden"></span></button>
     <button data-nav="world"><i>🌍</i>العالم<span id="worldDot2" class="dot hidden"></span></button>
-    <button data-nav="more"><i>☰</i>المزيد<span id="moreDot" class="dot hidden"></span></button>
   </nav>
   <div id="toast"></div>
   <div id="winner" class="hidden"></div>

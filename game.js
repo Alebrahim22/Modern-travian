@@ -19,12 +19,12 @@ const FACTION_DEFAULTS = {
 const FACTIONS_RAW = {
   china:    { name: 'الصين', flag: '🇨🇳', pros: ['إنتاج ضخم: تصنيع الوحدات أسرع 30٪', 'الوحدات أرخص 10٪', 'إنتاج الفولاذ +15٪'], cons: ['إنتاج الغذاء -10٪'],
               buildTime: 0.7, cost: 0.9, prod: { steel: 1.15, food: 0.9 } },
-  usa:      { name: 'أمريكا', flag: '🇺🇸', pros: ['قوة هجوم كل الوحدات +20٪', 'إنتاج المال +10٪'], cons: ['الوحدات أغلى 20٪'],
-              attack: 1.2, prod: { money: 1.1 }, cost: 1.2 },
-  russia:   { name: 'روسيا', flag: '🇷🇺', pros: ['استخبارات كاملة: ترى كل الحاميات وكل التحركات', 'الدفاع +15٪'], cons: ['إنتاج المال -5٪'],
-              intel: true, scoutAlways: true, seeIncoming: true, defense: 1.15, prod: { money: 0.95 } },
-  iran:     { name: 'إيران', flag: '🇮🇷', pros: ['كل الوحدات أرخص 25٪', 'إنتاج النفط +15٪'], cons: ['عقوبات: أسعار السوق العام سيئة'],
-              cost: 0.75, prod: { oil: 1.15 }, market: 0.45 },
+  usa:      { name: 'أمريكا', flag: '🇺🇸', pros: ['قوة هجوم كل الوحدات +20٪', 'إنتاج المال +10٪'], cons: ['الوحدات أغلى 10٪'],
+              attack: 1.2, prod: { money: 1.1 }, cost: 1.1 },
+  russia:   { name: 'روسيا', flag: '🇷🇺', pros: ['استخبارات كاملة: ترى كل الحاميات وكل التحركات', 'الدفاع +20٪'], cons: ['إنتاج المال -5٪'],
+              intel: true, scoutAlways: true, seeIncoming: true, defense: 1.2, prod: { money: 0.95 } },
+  iran:     { name: 'إيران', flag: '🇮🇷', pros: ['كل الوحدات أرخص 22٪', 'إنتاج النفط +15٪'], cons: ['عقوبات: أسعار السوق العام سيئة'],
+              cost: 0.78, prod: { oil: 1.15 }, market: 0.45 },
   pakistan: { name: 'باكستان', flag: '🇵🇰', pros: ['ردع نووي: دفاع العاصمة +60٪', 'المشاة والدفاع الجوي أرخص 25٪'], cons: ['إنتاج المال -5٪'],
               capitalDefense: 1.6, unitCost: { inf: 0.75, sam: 0.75 }, prod: { money: 0.95 } },
   india:    { name: 'الهند', flag: '🇮🇳', pros: ['عدد سكان +15٪', 'إنتاج الغذاء +20٪', 'تصنيع أسرع 10٪'], cons: ['أسعار السوق العام أقل'],
@@ -35,8 +35,8 @@ const FACTIONS_RAW = {
               scoutAlways: true, seeIncoming: true, unitAtt: { jet: 1.15 }, market: 0.7, pop: 0.95 },
   egypt:    { name: 'مصر', flag: '🇪🇬', pros: ['أكبر جيش: عدد سكان +15٪', 'المشاة أرخص 15٪', 'تكلفة الإعاشة -15٪'], cons: ['تقنية أقل: هجوم الدبابات والمقاتلات -15٪'],
               pop: 1.15, unitCost: { inf: 0.85 }, upkeep: 0.85, unitAtt: { tank: 0.85, jet: 0.85 } },
-  saudi:    { name: 'السعودية', flag: '🇸🇦', pros: ['ثروة نفطية: النفط +60٪', 'علاقات سياسية: كسب العلاقات أسرع 50٪', 'أسعار سوق ممتازة'], cons: ['تعتمد على الاستيراد: التصنيع أبطأ 15٪'],
-              prod: { oil: 1.6 }, diplomacy: 1.5, market: 0.75, buildTime: 1.15 },
+  saudi:    { name: 'السعودية', flag: '🇸🇦', pros: ['ثروة نفطية: النفط +30٪', 'علاقات سياسية: كسب العلاقات أسرع 50٪', 'أسعار سوق جيدة'], cons: ['تعتمد على الاستيراد: التصنيع أبطأ 20٪'],
+              prod: { oil: 1.3 }, diplomacy: 1.5, market: 0.68, buildTime: 1.2 },
 };
 const FACTIONS = {};
 for (const [k, f] of Object.entries(FACTIONS_RAW)) {
@@ -47,17 +47,17 @@ for (const [k, f] of Object.entries(FACTIONS_RAW)) {
 // att: attack; air: attack counts as air; defG/defA: defense vs ground/air; speed: map units per game-minute;
 // upkeep: food per game-minute; crew: manpower used
 const UNITS = {
-  inf:   { name: 'مشاة',         icon: '🪖', cost: { money: 60,  oil: 0,   steel: 15, food: 20 }, time: 8,  att: 10, air: false, defG: 15, defA: 5,  speed: 60,  upkeep: 1,   crew: 1 },
-  tank:  { name: 'دبابة',        icon: '🚜', cost: { money: 180, oil: 50,  steel: 90, food: 0 },  time: 25, att: 50, air: false, defG: 40, defA: 10, speed: 55,  upkeep: 3,   crew: 3 },
-  sam:   { name: 'دفاع جوي',     icon: '📡', cost: { money: 120, oil: 30,  steel: 70, food: 0 },  time: 20, att: 0,  air: false, defG: 15, defA: 80, speed: 40,  upkeep: 2,   crew: 2 },
-  jet:   { name: 'مقاتلة',       icon: '✈️', cost: { money: 320, oil: 140, steel: 70, food: 0 },  time: 40, att: 90, air: true,  defG: 20, defA: 40, speed: 180, upkeep: 4,   crew: 2 },
-  drone: { name: 'درون استطلاع', icon: '🛸', cost: { money: 40,  oil: 15,  steel: 10, food: 0 },  time: 6,  att: 0,  air: true,  defG: 1,  defA: 1,  speed: 240, upkeep: 0.5, crew: 1 },
-  heli:  { name: 'مروحية هجومية', icon: '🚁', cost: { money: 220, oil: 90,  steel: 50, food: 0 },  time: 28, att: 55, air: true,  defG: 30, defA: 15, speed: 120, upkeep: 3,   crew: 2 },
-  sf:    { name: 'قوات خاصة',     icon: '🥷', cost: { money: 150, oil: 10,  steel: 15, food: 30 }, time: 15, att: 32, air: false, defG: 20, defA: 8,  speed: 95,  upkeep: 1.5, crew: 1, req: 'logistics' },
-  arty:  { name: 'مدفعية',        icon: '💥', cost: { money: 200, oil: 40,  steel: 110, food: 0 }, time: 30, att: 70, air: false, defG: 15, defA: 5,  speed: 35,  upkeep: 2,   crew: 3, req: 'armor', siege: 1.5 },
-  abm:   { name: 'دفاع صاروخي',   icon: '🛡️', cost: { money: 300, oil: 60,  steel: 180, food: 0 }, time: 40, att: 0,  air: false, defG: 10, defA: 60, speed: 30,  upkeep: 3,   crew: 3, req: 'satellites', intercept: 1 },
-  bomber: { name: 'قاذفة شبح',    icon: '🛩️', cost: { money: 600, oil: 260, steel: 200, food: 0 }, time: 60, att: 170, air: true, defG: 15, defA: 30, speed: 150, upkeep: 6,  crew: 2, req: 'ew' },
-  missile: { name: 'صاروخ باليستي', icon: '🚀', cost: { money: 400, oil: 150, steel: 150, food: 0 }, time: 30, att: 150, air: true, defG: 0, defA: 0, speed: 400, upkeep: 0, crew: 1, req: 'missiles', oneShot: true },
+  inf:   { name: 'مشاة',         icon: '🪖', tier: 1, cost: { money: 60,  oil: 0,   steel: 15, food: 20 }, time: 8,  att: 10, air: false, defG: 15, defA: 5,  speed: 60,  upkeep: 1,   crew: 1 },
+  tank:  { name: 'دبابة',        icon: '🚜', tier: 2, cost: { money: 180, oil: 50,  steel: 90, food: 0 },  time: 25, att: 50, air: false, defG: 40, defA: 10, speed: 55,  upkeep: 3,   crew: 3 },
+  sam:   { name: 'دفاع جوي',     icon: '📡', tier: 1, cost: { money: 120, oil: 30,  steel: 70, food: 0 },  time: 20, att: 0,  air: false, defG: 15, defA: 80, speed: 40,  upkeep: 2,   crew: 2 },
+  jet:   { name: 'مقاتلة',       icon: '✈️', tier: 3, cost: { money: 320, oil: 140, steel: 70, food: 0 },  time: 40, att: 90, air: true,  defG: 20, defA: 40, speed: 180, upkeep: 4,   crew: 2 },
+  drone: { name: 'درون استطلاع', icon: '🛸', tier: 1, cost: { money: 40,  oil: 15,  steel: 10, food: 0 },  time: 6,  att: 0,  air: true,  defG: 1,  defA: 1,  speed: 240, upkeep: 0.5, crew: 1 },
+  heli:  { name: 'مروحية هجومية', icon: '🚁', tier: 2, cost: { money: 220, oil: 90,  steel: 50, food: 0 },  time: 28, att: 55, air: true,  defG: 30, defA: 15, speed: 120, upkeep: 3,   crew: 2 },
+  sf:    { name: 'قوات خاصة',     icon: '🥷', tier: 1, cost: { money: 150, oil: 10,  steel: 15, food: 30 }, time: 15, att: 32, air: false, defG: 20, defA: 8,  speed: 95,  upkeep: 1.5, crew: 1, req: 'logistics' },
+  arty:  { name: 'مدفعية',        icon: '💥', tier: 2, cost: { money: 200, oil: 40,  steel: 110, food: 0 }, time: 30, att: 70, air: false, defG: 15, defA: 5,  speed: 35,  upkeep: 2,   crew: 3, req: 'armor', siege: 1.5 },
+  abm:   { name: 'دفاع صاروخي',   icon: '🛡️', tier: 2, cost: { money: 300, oil: 60,  steel: 180, food: 0 }, time: 40, att: 0,  air: false, defG: 10, defA: 60, speed: 30,  upkeep: 3,   crew: 3, req: 'satellites', intercept: 1 },
+  bomber: { name: 'قاذفة شبح',    icon: '🛩️', tier: 3, cost: { money: 600, oil: 260, steel: 200, food: 0 }, time: 60, att: 170, air: true, defG: 15, defA: 30, speed: 150, upkeep: 6,  crew: 2, req: 'ew' },
+  missile: { name: 'صاروخ باليستي', icon: '🚀', tier: 3, cost: { money: 400, oil: 150, steel: 150, food: 0 }, time: 30, att: 150, air: true, defG: 0, defA: 0, speed: 400, upkeep: 0, crew: 1, req: 'missiles', oneShot: true },
 };
 
 const TECH_COST = { 1: { money: 800, oil: 300, steel: 400, food: 200 }, 2: { money: 1800, oil: 700, steel: 900, food: 400 }, 3: { money: 3200, oil: 1200, steel: 1600, food: 700 } };
@@ -115,6 +115,26 @@ const BUILDINGS = {
   radar:   { name: 'الرادار',   icon: '🛰️', desc: 'مدى الرؤية حول عاصمتك +40 لكل مستوى' },
 };
 const MAX_LEVEL = 10;
+
+// Military bases on captured sites: level n lets the site train units of tier <= n
+const BASE = {
+  cost: { 1: { money: 700, oil: 100, steel: 350, food: 100 }, 2: { money: 1400, oil: 300, steel: 750, food: 200 }, 3: { money: 2400, oil: 700, steel: 1200, food: 300 } },
+  time: { 1: 120, 2: 180, 3: 240 }, // game-seconds
+  trainTime: 2,                     // field factories: half the capital's speed
+  defense: 0.1,                     // +10% defence per level (+20% on command centres)
+};
+// what makes each kind of site different
+const SITE = {
+  city:      { cap: 60,  upkeep: 1,    trainTime: 0.8, desc: 'تصنيع أسرع 20٪' },
+  farm:      { cap: 100, upkeep: 0.75, desc: 'تتحمل جيشاً أكبر وإعاشة الجنود أرخص 25٪' },
+  oil:       { cap: 50,  upkeep: 1,    discount: ['jet', 'heli', 'bomber', 'missile'], desc: 'الطائرات والصواريخ أرخص 15٪' },
+  mine:      { cap: 50,  upkeep: 1,    discount: ['tank', 'arty', 'abm', 'sam'], desc: 'الدبابات والمدفعية والدفاعات أرخص 15٪' },
+  strategic: { cap: 70,  upkeep: 1,    desc: 'نقاط النصر ⭐ ودفاع +25٪' },
+};
+const HARSH = { cap: 0.7, upkeep: 1.5, desc: 'منطقة قاسية: إعاشة الجنود أغلى 50٪ وسعتها أقل' };
+const CAP_PER_LEVEL = 30;
+// deserts, tundra and high mountains on the world map
+const HARSH_SITES = ['الغوار', 'غرب سيبيريا', 'ليبيا', 'كازاخستان', 'ألبرتا', 'بيلبارا', 'أتاكاما', 'منغوليا', 'السويد', 'بلوشستان', 'التبت', 'الأورال', 'كابول'];
 
 const TERR = {
   capital:   { name: 'عاصمة',        icon: '🏛️', pop: 150, prod: { money: 300, oil: 120, steel: 150, food: 220 } },
@@ -231,6 +251,7 @@ class Game {
     place('strategic', nStrat, 0.05, 0.45, 110);
     const each = Math.max(2, Math.round(9 / Math.max(n, 2)));
     for (const type of ['city', 'oil', 'mine', 'farm']) place(type, 2 + n * each, 0.2, 1, 62);
+    for (const t of terr) if (['oil', 'mine'].includes(t.type) && this.rand() < 0.4) t.harsh = true; // deserts, tundra, mountains
     terr.forEach((t, i) => {
       t.id = i;
       t.units = emptyUnits();
@@ -252,28 +273,38 @@ class Game {
       used[f] = true;
       terr.push({ ...project(at[0], at[1]), type: 'capital', owner: id, name: c.name });
     }
-    // chokepoints: the closest free one to each capital first, so everyone has a nearby objective
+    // chokepoints: each capital first gets one that is closer to it than to any rival capital,
+    // so nobody starts with two command centres on their doorstep; the rest go to open ground
     const nStrat = Math.max(3, Math.min(6, ids.length + 1));
     const chokes = CHOKEPOINTS.map((c) => ({ ...project(c.at[0], c.at[1]), name: c.name }));
     const picked = [];
     const caps = terr.slice();
+    const nearestOther = (c, cap) => Math.min(Infinity, ...caps.filter((o) => o !== cap).map((o) => dist(c, o)));
+    const take = (c, cap) => { picked.push(c); terr.push({ x: c.x, y: c.y, name: c.name, type: 'strategic', owner: null, claim: cap && cap.owner }); };
+    const blocked = (c) => picked.includes(c) || !fits(c, 45) || picked.some((x) => dist(x, c) < 100);
+    for (const cap of caps) {
+      if (picked.length >= nStrat) break;
+      const free = chokes.filter((c) => !blocked(c));
+      if (!free.length) break;
+      // prefer ones this capital "owns" (margin over rivals), then the closest
+      free.sort((x, y) => (nearestOther(y, cap) - dist(y, cap)) - (nearestOther(x, cap) - dist(x, cap)));
+      const own = free.filter((c) => dist(c, cap) <= nearestOther(c, cap));
+      take(own.length ? own.sort((x, y) => dist(x, cap) - dist(y, cap))[0] : free[0], cap);
+    }
     while (picked.length < nStrat) {
-      for (const cap of caps) {
-        if (picked.length >= nStrat) break;
-        const free = chokes.filter((c) => !picked.includes(c) && fits(c, 45));
-        if (!free.length) break;
-        free.sort((a, b) => dist(a, cap) - dist(b, cap));
-        picked.push(free[0]);
-        terr.push({ x: free[0].x, y: free[0].y, name: free[0].name, type: 'strategic', owner: null, claim: cap.owner });
-      }
-      if (!chokes.some((c) => !picked.includes(c) && fits(c, 45))) break;
+      const free = chokes.filter((c) => !blocked(c));
+      if (!free.length) break;
+      // neutral ground: as far as possible from every capital's nearest reach
+      free.sort((x, y) => Math.min(...caps.map((o) => dist(y, o))) - Math.min(...caps.map((o) => dist(x, o))));
+      const pool = free.slice(0, Math.max(1, Math.ceil(free.length / 2)));
+      take(pool.sort((x, y) => Math.max(...caps.map((o) => dist(x, o))) - Math.max(...caps.map((o) => dist(y, o))))[0], null);
     }
     // Real geography is lopsided, so sites are shared out fairly: each capital in turn claims
     // its nearest unclaimed site until everyone has the same number. Capitals of factions nobody
     // picked become strong neutral cities in the same pool.
     const pool = [];
     for (const [f, c] of Object.entries(CAPITALS)) if (!used[f]) pool.push({ ...project(c.at[0], c.at[1]), type: 'city', name: c.name, strong: true });
-    for (const s of SITES) pool.push({ ...project(s.at[0], s.at[1]), type: s.type, name: s.name });
+    for (const s of SITES) pool.push({ ...project(s.at[0], s.at[1]), type: s.type, name: s.name, harsh: HARSH_SITES.includes(s.name) });
     const valid = pool.filter((p) => fits(p, 42));
     const perCap = Math.min(9, Math.floor(valid.length / caps.length));
     const types = ['city', 'oil', 'mine', 'farm'];
@@ -286,7 +317,7 @@ class Game {
         if (!free.length) continue;
         free.sort((x, y) => dist(x, cap) - dist(y, cap));
         free[0].taken = true;
-        terr.push({ x: free[0].x, y: free[0].y, type: free[0].type, owner: null, name: free[0].name, strong: free[0].strong, claim: cap.owner });
+        terr.push({ x: free[0].x, y: free[0].y, type: free[0].type, owner: null, name: free[0].name, strong: free[0].strong, harsh: free[0].harsh, claim: cap.owner });
       }
     }
     // Isolated nations face no early neighbours, so their nearby sites are held by tougher
@@ -319,8 +350,9 @@ class Game {
     if (m === undefined) return key === 'market' ? 0 : 1;
     return sub ? (m[sub] ?? 1) : m;
   }
-  unitCost(p, u) {
-    const c = UNITS[u].cost, f = this.fac(p), m = f.cost * (f.unitCost[u] || 1) * this.ev('cost');
+  unitCost(p, u, at) {
+    const c = UNITS[u].cost, f = this.fac(p), site = at && SITE[at.type];
+    const m = f.cost * (f.unitCost[u] || 1) * this.ev('cost') * (site && site.discount && site.discount.includes(u) ? 0.85 : 1);
     const out = {};
     for (const r of RES) out[r] = Math.round(c[r] * m);
     return out;
@@ -330,7 +362,17 @@ class Game {
     return { money: Math.round(250 * m), oil: Math.round(80 * m), steel: Math.round(180 * m), food: Math.round(60 * m) };
   }
   upgradeTime(p, b) { return Math.round(40 * Math.pow(1.4, p.buildings[b] - 1)); }
-  unitTime(p, u) { return UNITS[u].time * this.fac(p).buildTime / (1 + 0.15 * (p.buildings.factory - 1)); }
+  unitTime(p, u, at) {
+    const site = at && at.type !== 'capital' ? BASE.trainTime * (SITE[at.type].trainTime || 1) : 1;
+    return UNITS[u].time * this.fac(p).buildTime * site / (1 + 0.15 * (p.buildings.factory - 1));
+  }
+  get BASE() { return BASE; }
+  // bases
+  baseLevel(t) { return t.type === 'capital' ? 3 : t.base || 0; }
+  baseLimit(p) { return 3 + Math.floor((p.buildings.economy - 1) / 3); }
+  baseCount(p) { return this.terr.filter((t) => t.owner === p.id && t.base > 0).length; }
+  siteCap(t) { const s = SITE[t.type]; return s ? Math.round((s.cap + CAP_PER_LEVEL * (t.base || 0)) * (t.harsh ? HARSH.cap : 1)) : Infinity; }
+  crew(units) { let c = 0; for (const k in units) c += units[k] * UNITS[k].crew; return c; }
   canPay(p, c) { return RES.every((r) => p.res[r] >= (c[r] || 0)); }
   pay(p, c) { RES.forEach((r) => (p.res[r] -= c[r] || 0)); }
   visionRadius(p) { return (160 + 40 * (p.buildings.radar - 1)) / this.distScale; }
@@ -383,10 +425,18 @@ class Game {
     return 0.4 + 0.6 * clamp((pop - mil) / Math.max(pop, 1), 0, 1);
   }
   upkeep(p) {
-    const u = this.allUnits(p);
+    const food = (units) => { let f = 0; for (const k in units) f += units[k] * UNITS[k].upkeep; return f; };
     let f = 0;
-    for (const k in u) f += u[k] * UNITS[k].upkeep;
+    for (const t of this.terr) if (t.owner === p.id) f += food(t.units) * this.siteUpkeep(t);
+    for (const m of this.movements) if (m.owner === p.id) f += food(m.units);
     return f * this.fac(p).upkeep;
+  }
+  // food multiplier for troops stationed at a site: terrain, plus double cost for the share over capacity
+  siteUpkeep(t) {
+    if (t.type === 'capital') return 1;
+    const crew = this.crew(t.units), cap = this.siteCap(t);
+    const over = crew > cap ? 1 + (crew - cap) / crew : 1;
+    return (SITE[t.type].upkeep || 1) * (t.harsh ? HARSH.upkeep : 1) * over;
   }
   income(p) {
     const inc = emptyRes(), f = this.fac(p);
@@ -433,7 +483,7 @@ class Game {
       gift: this.cmdGift, propose: this.cmdPropose, acceptAlliance: this.cmdAcceptAlliance,
       rejectAlliance: this.cmdRejectAlliance, leaveAlliance: (pp) => this.leaveAlliance(pp), mission: this.cmdMission,
       research: this.cmdResearch, hireGeneral: this.cmdHireGeneral, buildSW: this.cmdBuildSW, strike: this.cmdStrike,
-      crisis: this.cmdCrisis, vote: this.cmdVote,
+      crisis: this.cmdCrisis, vote: this.cmdVote, buildBase: this.cmdBuildBase,
     }[c.type];
     return fn ? fn.call(this, p, c) : 'أمر غير معروف';
   }
@@ -442,14 +492,33 @@ class Game {
     const u = c.unit, count = Math.floor(c.count);
     if (!UNITS[u] || !(count > 0 && count <= 500)) return 'طلب غير صالح';
     if (UNITS[u].req && !this.has(p, UNITS[u].req)) return `يحتاج بحث ${TECHS[UNITS[u].req].name}`;
-    const one = this.unitCost(p, u);
+    const at = this.terr[c.at ?? p.capital];
+    if (!at || at.owner !== p.id) return 'هذا الموقع ليس لك';
+    if (this.baseLevel(at) < UNITS[u].tier) return at.base ? `يحتاج قاعدة مستوى ${UNITS[u].tier}` : 'ابنِ قاعدة عسكرية هنا أولاً';
+    const one = this.unitCost(p, u, at);
     const total = {};
     for (const r of RES) total[r] = one[r] * count;
     if (!this.canPay(p, total)) return 'موارد غير كافية';
     if (this.military(p, true) + count * UNITS[u].crew > this.population(p)) return 'لا توجد قوى بشرية كافية. وسّع أراضيك أو طوّر السكن';
-    if (p.queue.length >= 8) return 'طابور التصنيع ممتلئ';
+    if (p.queue.filter((q) => q.at === at.id).length >= 6) return 'طابور التصنيع هنا ممتلئ';
     this.pay(p, total);
-    p.queue.push({ unit: u, count, remaining: this.unitTime(p, u) });
+    p.queue.push({ unit: u, count, at: at.id, remaining: this.unitTime(p, u, at) });
+    return null;
+  }
+
+  cmdBuildBase(p, c) {
+    const t = this.terr[c.terr];
+    if (!t || t.owner !== p.id) return 'هذا الموقع ليس لك';
+    if (t.type === 'capital') return 'العاصمة فيها مصانعك أصلاً';
+    if (p.baseBuild) return 'جاري بناء قاعدة أخرى، انتظر حتى تكتمل';
+    const lvl = (t.base || 0) + 1;
+    if (lvl > 3) return 'القاعدة في أعلى مستوى';
+    if (lvl === 1 && this.baseCount(p) >= this.baseLimit(p)) return `وصلت للحد الأقصى من القواعد (${this.baseLimit(p)}). طوّر الاقتصاد لزيادته`;
+    const cost = BASE.cost[lvl];
+    if (!this.canPay(p, cost)) return 'موارد غير كافية';
+    this.pay(p, cost);
+    const time = BASE.time[lvl] * this.fac(p).buildTime;
+    p.baseBuild = { terr: t.id, level: lvl, remaining: time, total: time };
     return null;
   }
 
@@ -892,15 +961,30 @@ class Game {
         p.sw.remaining -= dt;
         if (p.sw.remaining <= 0) { p.sw.ready = true; this.addLog(null, `☢️ السلاح النهائي لدى ${p.name} أصبح جاهزاً للإطلاق!`, 'bad'); }
       }
-      let left = dt;
-      while (left > 0 && p.queue.length) {
-        const q = p.queue[0];
-        if (q.remaining > left) { q.remaining -= left; break; }
-        left -= q.remaining;
-        this.terr[p.capital].units[q.unit]++;
-        q.count--;
-        if (q.count <= 0) p.queue.shift();
-        else q.remaining = this.unitTime(p, q.unit);
+      // every base works through its own queue in parallel
+      const sites = [...new Set(p.queue.map((q) => q.at))];
+      for (const at of sites) {
+        const t = this.terr[at];
+        if (t.owner !== p.id) { p.queue = p.queue.filter((q) => q.at !== at); continue; } // site lost
+        let left = dt;
+        while (left > 0) {
+          const q = p.queue.find((x) => x.at === at);
+          if (!q) break;
+          if (q.remaining > left) { q.remaining -= left; break; }
+          left -= q.remaining;
+          t.units[q.unit]++;
+          q.count--;
+          if (q.count <= 0) p.queue.splice(p.queue.indexOf(q), 1);
+          else q.remaining = this.unitTime(p, q.unit, t);
+        }
+      }
+      if (p.baseBuild) {
+        const b = p.baseBuild, t = this.terr[b.terr];
+        if (t.owner !== p.id) { p.baseBuild = null; }
+        else if ((b.remaining -= dt) <= 0) {
+          t.base = b.level; p.baseBuild = null;
+          this.addLog(p.id, `🏰 اكتملت القاعدة العسكرية في ${this.tname(t)} (مستوى ${t.base})`, 'good');
+        }
       }
       if (p.bot) for (const k in p.rel) if (!this.allies(p.id, k)) p.rel[k] += ((0 - p.rel[k]) * 0.005 * dt) / 60;
     }
@@ -1032,10 +1116,11 @@ class Game {
     }
     if (def && def.general && def.general.loc === t.id) D *= this.generalMult(def, 'defense');
     // home soil: sites close to their owner's capital are easier to hold
-    if (def && t.type !== 'capital' && dist(t, this.terr[def.capital]) * this.distScale < HOME_RADIUS) D *= 1.3;
+    if (def && t.type !== 'capital' && t.type !== 'strategic' && dist(t, this.terr[def.capital]) * this.distScale < HOME_RADIUS) D *= 1.3; // command centres stay contested
     let bonus = 0, base = 20;
     if (t.type === 'capital') { bonus = 0.15 * def.buildings.defense; base = 50 * def.buildings.defense; D *= defF.capitalDefense; }
     if (t.type === 'strategic') bonus = 0.25;
+    if (t.base) bonus += t.base * BASE.defense * (SITE[t.type].baseDefense || 1);
     return D * defF.defense * (1 + bonus) * this.ev('defense') + base;
   }
 
@@ -1086,6 +1171,7 @@ class Game {
         const prev = to.owner;
         to.owner = p.id;
         to.units = { ...m.units };
+        if (to.base) { to.base--; this.addLog(p.id, to.base ? `🏰 استوليت على قاعدة عسكرية متضررة (مستوى ${to.base})` : '🏰 دُمّرت القاعدة العسكرية في المعركة', 'warn'); }
         if (gen) gen.loc = to.id;
         this.addLog(p.id, `⚔️ انتصار! سيطرت على ${this.tname(to)}. خسائرك: ${this.unitsText(lossesA)}`, 'good');
         if (prev) this.addLog(prev, `🔥 ${p.name} استولى على ${this.tname(to)}! خسائرك: ${this.unitsText(lossesD)}`, 'bad');
@@ -1134,7 +1220,8 @@ class Game {
     const allSeeing = f.intel || this.has(me, 'satellites');
     const seen = (t) => allSeeing || friendly(t.owner) || eyes.some((e) => dist(e, t) <= e.r);
     const terr = this.terr.map((t) => {
-      const o = { id: t.id, x: t.x, y: t.y, type: t.type, owner: t.owner, name: t.name };
+      const o = { id: t.id, x: t.x, y: t.y, type: t.type, owner: t.owner, name: t.name, base: t.base || 0, harsh: !!t.harsh };
+      if (t.owner === pid && t.type !== 'capital') { o.cap = this.siteCap(t); o.crew = this.crew(t.units); o.upkeepMult = this.siteUpkeep(t); }
       if (seen(t)) o.units = t.units;
       else if (me.scouts[t.id]) o.scout = { age: (this.t - me.scouts[t.id].t) / this.speed, units: me.scouts[t.id].units };
       return o;
@@ -1181,7 +1268,12 @@ class Game {
         id: me.id, res: me.res, income: this.income(me), upkeep: this.upkeep(me), buildings: me.buildings,
         pop, mil, milQueued: this.military(me, true), productivity: this.productivity(me), marketRate: this.marketRate(me),
         upgrade: me.upgrade ? { ...me.upgrade, remaining: me.upgrade.remaining / this.speed, total: me.upgrade.total / this.speed } : null,
-        queue: me.queue.map((q) => ({ unit: q.unit, count: q.count, remaining: q.remaining / this.speed })),
+        queue: me.queue.map((q) => ({ unit: q.unit, count: q.count, at: q.at, remaining: q.remaining / this.speed })),
+        baseBuild: me.baseBuild ? { ...me.baseBuild, remaining: rs(me.baseBuild.remaining), total: rs(me.baseBuild.total) } : null,
+        baseCosts: BASE.cost, baseTimes: Object.fromEntries(Object.entries(BASE.time).map(([k, v]) => [k, rs(v * f.buildTime)])),
+        baseLimit: this.baseLimit(me), baseCount: this.baseCount(me),
+        siteCosts: Object.fromEntries(this.terr.filter((t) => t.owner === pid && t.base > 0).map((t) => [t.id,
+          Object.fromEntries(Object.keys(UNITS).map((u) => [u, { cost: this.unitCost(me, u, t), time: this.unitTime(me, u, t) / this.speed }]))])),
         capital: me.capital,
         techs: me.techs, research: me.research ? { tech: me.research.tech, remaining: rs(me.research.remaining), total: rs(me.research.total) } : null,
         techCosts: Object.fromEntries(Object.keys(TECHS).map((k) => [k, { cost: this.techCost(k), time: rs(TECH_TIME[TECHS[k].tier]) }])),
@@ -1203,4 +1295,4 @@ class Game {
   }
 }
 
-module.exports = { RIVALRIES, GENERIC_CRISES, Game, FACTIONS, UNITS, BUILDINGS, TERR, EVENTS, RES, TECHS, GENERALS, CRISIS_ACTIONS, PERMANENT, MAP_W, MAP_H, WORLD_DRAW, GAME_MINUTES, REL, emptyUnits, sumUnits, dist };
+module.exports = { BASE, SITE, HARSH, RIVALRIES, GENERIC_CRISES, Game, FACTIONS, UNITS, BUILDINGS, TERR, EVENTS, RES, TECHS, GENERALS, CRISIS_ACTIONS, PERMANENT, MAP_W, MAP_H, WORLD_DRAW, GAME_MINUTES, REL, emptyUnits, sumUnits, dist };
