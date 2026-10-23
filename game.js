@@ -2,6 +2,7 @@
 // 120 game-minutes long and `speed` compresses or stretches it into real time.
 
 const { WORLD, WORLD_DRAW, CAPITALS, CHOKEPOINTS, SITES, project } = require('./world');
+const { NuclearMixin, NUKE, INTEL, OPS, CONF, STAGES, RESOLUTIONS, COUNCIL, UN_VP } = require('./nuclear');
 
 const GAME_MINUTES = 120;
 
@@ -130,6 +131,7 @@ const SITE = {
   oil:       { cap: 50,  upkeep: 1,    discount: ['jet', 'heli', 'bomber', 'missile'], desc: 'الطائرات والصواريخ أرخص 15٪' },
   mine:      { cap: 50,  upkeep: 1,    discount: ['tank', 'arty', 'abm', 'sam'], desc: 'الدبابات والمدفعية والدفاعات أرخص 15٪' },
   strategic: { cap: 70,  upkeep: 1,    desc: 'نقاط النصر ⭐ ودفاع +25٪' },
+  un:        { cap: 70,  upkeep: 1,    desc: 'مقعد دائم في مجلس الأمن (صوتك بصوتين) و5 نقاط نصر/د. في نمط النووي فقط' },
 };
 const HARSH = { cap: 0.7, upkeep: 1.5, desc: 'منطقة قاسية: إعاشة الجنود أغلى 50٪ وسعتها أقل' };
 const CAP_PER_LEVEL = 30;
@@ -143,6 +145,7 @@ const TERR = {
   mine:      { name: 'منجم',         icon: '⛏️', pop: 15,  prod: { money: 0, oil: 0, steel: 130, food: 0 },   garrison: { inf: 10, tank: 3 } },
   farm:      { name: 'أراضٍ زراعية', icon: '🌾', pop: 25,  prod: { money: 0, oil: 0, steel: 0, food: 180 },   garrison: { inf: 8, tank: 2 } },
   strategic: { name: 'مركز قيادة استراتيجي', icon: '⭐', pop: 30, prod: { money: 100, oil: 40, steel: 40, food: 40 }, garrison: { inf: 30, tank: 8, sam: 6 } },
+  un:        { name: 'مركز نفوذ أممي', icon: '🌐', pop: 30, prod: { money: 120, oil: 0, steel: 0, food: 40 }, garrison: { inf: 25, tank: 6, sam: 5 } },
 };
 
 const EVENTS = [
@@ -203,6 +206,11 @@ class Game {
     this.vote = null;
     this.nextVoteT = 35 * 60;
     this.sanctions = null;
+    this.mode = opts.mode === 'nuclear' ? 'nuclear' : 'domination';
+    this.nuclear = this.mode === 'nuclear';
+    this.stars = opts.stars >= 3 && opts.stars <= 8 ? Math.floor(opts.stars) : null; // null: scale with player count
+    this.seats = opts.seats >= 0 && opts.seats <= 5 ? Math.floor(opts.seats) : Math.max(1, Math.round(players.length / 3));
+    this.nukeWin = opts.nukeWin === 'vp' ? 'vp' : 'win';
 
     players.forEach((p, i) => {
       this.players[p.id] = {
@@ -220,11 +228,13 @@ class Game {
       for (const p of Object.values(this.players)) if (p.id !== b.id) b.rel[p.id] = this.allies(b.id, p.id) ? 80 : Math.round(this.rand() * 20 - 10);
     }
     this.maxTeam = Math.max(2, Math.floor(players.length / 2));
+    if (this.nuclear) this.initNuclear();
     if (this.world) this.genWorld(players.map((p) => p.id));
     else this.genMap(players.map((p) => p.id));
     this.nStrategic = this.terr.filter((t) => t.type === 'strategic').length;
     this.vpTarget = 2.5 * GAME_MINUTES * this.nStrategic;
     this.addLog(null, `بدأت المباراة! أول فريق يجمع ${this.vpTarget} نقطة نصر يفوز، أو صاحب أعلى نقاط عند انتهاء الوقت.`);
+    if (this.nuclear) this.addLog(null, this.nukeWin === 'win' ? '☢️ نمط سباق النووي: أول تجربة نووية ناجحة تفوز فوراً مع حلفائها وشركائها السريين' : `☢️ نمط سباق النووي: التجربة النووية الناجحة تعطي +${NUKE.vp.test} نقطة نصر`, 'warn');
   }
 
   // ---------- map ----------
@@ -247,8 +257,9 @@ class Game {
         }
       }
     };
-    const nStrat = Math.max(3, Math.min(6, n + 1));
+    const nStrat = this.stars || Math.max(3, Math.min(6, n + 1));
     place('strategic', nStrat, 0.05, 0.45, 110);
+    if (this.nuclear) place('un', 5, 0.15, 0.6, 100);
     const each = Math.max(2, Math.round(9 / Math.max(n, 2)));
     for (const type of ['city', 'oil', 'mine', 'farm']) place(type, 2 + n * each, 0.2, 1, 62);
     for (const t of terr) if (['oil', 'mine'].includes(t.type) && this.rand() < 0.4) t.harsh = true; // deserts, tundra, mountains
@@ -275,7 +286,7 @@ class Game {
     }
     // chokepoints: each capital first gets one that is closer to it than to any rival capital,
     // so nobody starts with two command centres on their doorstep; the rest go to open ground
-    const nStrat = Math.max(3, Math.min(6, ids.length + 1));
+    const nStrat = this.stars || Math.max(3, Math.min(6, ids.length + 1));
     const chokes = CHOKEPOINTS.map((c) => ({ ...project(c.at[0], c.at[1]), name: c.name }));
     const picked = [];
     const caps = terr.slice();
@@ -299,6 +310,7 @@ class Game {
       const pool = free.slice(0, Math.max(1, Math.ceil(free.length / 2)));
       take(pool.sort((x, y) => Math.max(...caps.map((o) => dist(x, o))) - Math.max(...caps.map((o) => dist(y, o))))[0], null);
     }
+    if (this.nuclear) this.placeUN(terr, caps, fits);
     // Real geography is lopsided, so sites are shared out fairly: each capital in turn claims
     // its nearest unclaimed site until everyone has the same number. Capitals of factions nobody
     // picked become strong neutral cities in the same pool.
@@ -367,6 +379,7 @@ class Game {
     return UNITS[u].time * this.fac(p).buildTime * site / (1 + 0.15 * (p.buildings.factory - 1));
   }
   get BASE() { return BASE; }
+  get NUKE() { return NUKE; }
   // bases
   baseLevel(t) { return t.type === 'capital' ? 3 : t.base || 0; }
   baseLimit(p) { return 3 + Math.floor((p.buildings.economy - 1) / 3); }
@@ -384,6 +397,7 @@ class Game {
     const side = this.partyOf(p.id);
     if (side && this.crisis.party[p.id] !== 'calm') m *= 0.9;           // war economy
     if (this.sanctions && this.sanctions.team === p.team) m *= 0.75;
+    if (this.measure(p.id, 'sanctions')) m *= 0.75;
     return m;
   }
   crisisAttackBonus(p, def) {
@@ -440,7 +454,7 @@ class Game {
   }
   income(p) {
     const inc = emptyRes(), f = this.fac(p);
-    const mult = (1 + 0.12 * (p.buildings.economy - 1)) * this.productivity(p) * this.statusMult(p);
+    const mult = (1 + 0.12 * (p.buildings.economy - 1)) * this.productivity(p) * this.statusMult(p) * this.civilBonus(p);
     for (const t of this.terr) if (t.owner === p.id) {
       for (const r of RES) inc[r] += TERR[t.type].prod[r] * mult * f.prod[r] * this.ev('prod', r);
     }
@@ -484,7 +498,12 @@ class Game {
       rejectAlliance: this.cmdRejectAlliance, leaveAlliance: (pp) => this.leaveAlliance(pp), mission: this.cmdMission,
       research: this.cmdResearch, hireGeneral: this.cmdHireGeneral, buildSW: this.cmdBuildSW, strike: this.cmdStrike,
       crisis: this.cmdCrisis, vote: this.cmdVote, buildBase: this.cmdBuildBase,
-    }[c.type];
+    }[c.type] || (this.nuclear && {
+      nukeResearch: this.cmdNukeResearch, nukeEnrich: this.cmdNukeEnrich, nukeWeapon: this.cmdNukeWeapon, nukePace: this.cmdNukePace,
+      nukeTest: this.cmdNukeTest, nukeDecoy: this.cmdNukeDecoy, intelUpgrade: this.cmdIntelUpgrade, op: this.cmdOp,
+      pactOffer: this.cmdPactOffer, pactSupport: this.cmdPactSupport, pactAnswer: this.cmdPactAnswer, pactFund: this.cmdPactFund,
+      councilPropose: this.cmdCouncilPropose, councilEvidence: this.cmdCouncilEvidence, councilVote: this.cmdCouncilVote,
+    }[c.type]);
     return fn ? fn.call(this, p, c) : 'أمر غير معروف';
   }
 
@@ -537,6 +556,7 @@ class Game {
   cmdMarket(p, c) {
     const amt = Math.floor(c.amount);
     if (this.sanctions && this.sanctions.team === p.team) return 'السوق العام مغلق أمامك بسبب عقوبات مجلس الأمن';
+    if (this.embargoed(p)) return 'السوق مغلق أمامك بسبب الحظر التجاري';
     if (!RES.includes(c.give) || !RES.includes(c.get) || c.give === c.get || !(amt > 0)) return 'طلب غير صالح';
     if (p.res[c.give] < amt) return 'موارد غير كافية';
     p.res[c.give] -= amt;
@@ -547,6 +567,7 @@ class Game {
   cmdOffer(p, c) {
     const ga = Math.floor(c.giveAmt), wa = Math.floor(c.wantAmt);
     if (!RES.includes(c.give) || !RES.includes(c.want) || c.give === c.want || !(ga > 0) || !(wa > 0)) return 'عرض غير صالح';
+    if (this.embargoed(p)) return 'لا يمكنك نشر عروض تحت الحظر التجاري';
     if (p.res[c.give] < ga) return 'موارد غير كافية';
     if (this.offers.filter((o) => o.owner === p.id).length >= 5) return 'لديك 5 عروض مفتوحة كحد أقصى';
     p.res[c.give] -= ga;
@@ -563,6 +584,7 @@ class Game {
   cmdAcceptOffer(p, c) {
     const o = this.offers.find((x) => x.id === c.id);
     if (!o || o.owner === p.id) return 'العرض غير متاح';
+    if (this.embargoed(p) || this.embargoed(this.players[o.owner])) return 'الصفقة ممنوعة بسبب الحظر التجاري';
     if (p.res[o.want] < o.wantAmt) return 'موارد غير كافية';
     const owner = this.players[o.owner];
     if (owner.bot && (owner.rel[p.id] || 0) < REL.hostile) return `${owner.name} يرفض التعامل معك`;
@@ -648,6 +670,7 @@ class Game {
   cmdResearch(p, c) {
     const T = TECHS[c.tech];
     if (!T) return 'طلب غير صالح';
+    if (this.nuclear && c.tech === 'nuclear') return 'في نمط النووي البرنامج النووي له تبويب خاص';
     if (p.techs[c.tech]) return 'تم البحث مسبقاً';
     if (p.research) return 'يوجد بحث قيد التنفيذ';
     if (!T.req.every((r) => p.techs[r])) return 'يحتاج أبحاثاً سابقة';
@@ -996,6 +1019,7 @@ class Game {
       this.movements = this.movements.filter((m) => m.arrive > this.t);
       for (const m of due) this.arrive(m);
     }
+    if (this.nuclear) this.tickNuclear(dt);
     this.missions = this.missions.filter((m) => m.expires > this.t);
     if (Math.floor((this.t - dt) / 60) !== Math.floor(this.t / 60)) this.genMissions();
     this.checkWin();
@@ -1008,7 +1032,7 @@ class Game {
       this.nextCrisisT = this.t + (16 + this.rand() * 6) * 60;
     }
     if (this.vote && this.t >= this.vote.until) this.endVote();
-    if (!this.vote && this.t >= this.nextVoteT) {
+    if (!this.vote && !this.nuclear && this.t >= this.nextVoteT) {
       this.startVote();
       this.nextVoteT = this.t + 25 * 60;
     }
@@ -1094,7 +1118,7 @@ class Game {
 
   attackPower(p, units, general, def, target) {
     const f = this.fac(p);
-    const mult = f.attack * (general ? this.generalMult(p, 'attack') : 1) * this.crisisAttackBonus(p, def);
+    const mult = f.attack * (general ? this.generalMult(p, 'attack') : 1) * this.crisisAttackBonus(p, def) * this.measureAttack(def);
     let g = 0, a = 0;
     for (const u in units) {
       const v = UNITS[u].att * units[u] * mult * (f.unitAtt[u] || 1) * (u === 'tank' && this.has(p, 'armor') ? 1.1 : 1)
@@ -1116,10 +1140,10 @@ class Game {
     }
     if (def && def.general && def.general.loc === t.id) D *= this.generalMult(def, 'defense');
     // home soil: sites close to their owner's capital are easier to hold
-    if (def && t.type !== 'capital' && t.type !== 'strategic' && dist(t, this.terr[def.capital]) * this.distScale < HOME_RADIUS) D *= 1.3; // command centres stay contested
+    if (def && !['capital', 'strategic', 'un'].includes(t.type) && dist(t, this.terr[def.capital]) * this.distScale < HOME_RADIUS) D *= 1.3; // command centres stay contested
     let bonus = 0, base = 20;
     if (t.type === 'capital') { bonus = 0.15 * def.buildings.defense; base = 50 * def.buildings.defense; D *= defF.capitalDefense; }
-    if (t.type === 'strategic') bonus = 0.25;
+    if (t.type === 'strategic' || t.type === 'un') bonus = 0.25;
     if (t.base) bonus += t.base * BASE.defense * (SITE[t.type].baseDefense || 1);
     return D * defF.defense * (1 + bonus) * this.ev('defense') + base;
   }
@@ -1156,6 +1180,7 @@ class Game {
         this.addLog(p.id, `🚀 ضربة ناجحة على ${this.tname(to)}: أُبيدت الحامية (${this.unitsText(lossesD)}) لكن لا توجد قوات برية للسيطرة عليه`, 'good');
         if (def) this.addLog(def.id, `🚀 ضربة صاروخية من ${p.name} على ${this.tname(to)} أبادت الحامية`, 'bad');
         if (gen) this.dispatch(p.id, to, this.terr[p.capital], m.units, 'return', null, true);
+        this.onSiteHit(p, def, to, 'strike');
       } else if (to.type === 'capital') {
         const loot = {};
         for (const r of RES) { loot[r] = def.res[r] * 0.3; def.res[r] -= loot[r]; }
@@ -1167,15 +1192,19 @@ class Game {
           this.addLog(null, `💥 ${p.name} خرّب مشروع السلاح النهائي لدى ${def.name} وأخّره`, 'warn');
         }
         this.dispatch(p.id, to, this.terr[p.capital], m.units, 'return', loot, !!gen);
+        this.onSiteHit(p, def, to, 'raid');
       } else {
         const prev = to.owner;
         to.owner = p.id;
+        to.capturedAt = this.t;
         to.units = { ...m.units };
         if (to.base) { to.base--; this.addLog(p.id, to.base ? `🏰 استوليت على قاعدة عسكرية متضررة (مستوى ${to.base})` : '🏰 دُمّرت القاعدة العسكرية في المعركة', 'warn'); }
         if (gen) gen.loc = to.id;
         this.addLog(p.id, `⚔️ انتصار! سيطرت على ${this.tname(to)}. خسائرك: ${this.unitsText(lossesA)}`, 'good');
         if (prev) this.addLog(prev, `🔥 ${p.name} استولى على ${this.tname(to)}! خسائرك: ${this.unitsText(lossesD)}`, 'bad');
         if (to.type === 'strategic') this.addLog(null, `⭐ ${p.name} سيطر على ${this.tname(to)}`, 'warn');
+        if (to.type === 'un') this.addLog(null, `🌐 ${p.name} سيطر على ${this.tname(to)}`, 'warn');
+        this.onSiteHit(p, def, to, 'capture');
         this.missionEvent('capture', p.id, { terr: to.id });
       }
     } else {
@@ -1204,8 +1233,9 @@ class Game {
     }
   }
 
-  finish(team, why) {
+  finish(team, why, extra = []) {
     const members = this.teamMembers(team);
+    for (const id of extra) if (!members.some((m) => m.id === id)) members.push(this.players[id]);
     this.winner = { team, names: members.map((p) => p.name), ids: members.map((p) => p.id), why };
     this.addLog(null, `🏆 الفائز: ${this.winner.names.join(' و ')} (${why})`, 'good');
   }
@@ -1222,6 +1252,7 @@ class Game {
     const terr = this.terr.map((t) => {
       const o = { id: t.id, x: t.x, y: t.y, type: t.type, owner: t.owner, name: t.name, base: t.base || 0, harsh: !!t.harsh };
       if (t.owner === pid && t.type !== 'capital') { o.cap = this.siteCap(t); o.crew = this.crew(t.units); o.upkeepMult = this.siteUpkeep(t); }
+      if (this.nuclear) this.nuclearTerr(pid, o, t);
       if (seen(t)) o.units = t.units;
       else if (me.scouts[t.id]) o.scout = { age: (this.t - me.scouts[t.id].t) / this.speed, units: me.scouts[t.id].units };
       return o;
@@ -1250,6 +1281,7 @@ class Game {
     const rs = (x) => x / this.speed;
     const cr = this.crisis;
     return {
+      ...(this.nuclear ? this.nuclearView(pid) : { mode: 'domination' }),
       t: this.t, speed: this.speed, remaining: (this.endT - this.t) / this.speed,
       map: { W: this.W, H: this.H, world: this.world },
       crisis: cr ? {
@@ -1295,4 +1327,6 @@ class Game {
   }
 }
 
-module.exports = { BASE, SITE, HARSH, RIVALRIES, GENERIC_CRISES, Game, FACTIONS, UNITS, BUILDINGS, TERR, EVENTS, RES, TECHS, GENERALS, CRISIS_ACTIONS, PERMANENT, MAP_W, MAP_H, WORLD_DRAW, GAME_MINUTES, REL, emptyUnits, sumUnits, dist };
+Object.assign(Game.prototype, NuclearMixin);
+
+module.exports = { NUKE, INTEL, OPS, CONF, STAGES, RESOLUTIONS, COUNCIL, UN_VP, BASE, SITE, HARSH, RIVALRIES, GENERIC_CRISES, Game, FACTIONS, UNITS, BUILDINGS, TERR, EVENTS, RES, TECHS, GENERALS, CRISIS_ACTIONS, PERMANENT, MAP_W, MAP_H, WORLD_DRAW, GAME_MINUTES, REL, emptyUnits, sumUnits, dist };

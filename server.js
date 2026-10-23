@@ -3,8 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
-const { Game, FACTIONS, UNITS, BUILDINGS, TERR, RES, TECHS, GENERALS, CRISIS_ACTIONS, MAP_W, MAP_H, WORLD_DRAW, RIVALRIES, GENERIC_CRISES, EVENTS, PERMANENT, REL, BASE, SITE, HARSH } = require('./game');
-const META = { FACTIONS, UNITS, BUILDINGS, TERR, RES, TECHS, GENERALS, CRISIS_ACTIONS, MAP_W, MAP_H, WORLD_DRAW, RIVALRIES, GENERIC_CRISES, EVENTS, PERMANENT, REL, BASE, SITE, HARSH };
+const { Game, FACTIONS, UNITS, BUILDINGS, TERR, RES, TECHS, GENERALS, CRISIS_ACTIONS, MAP_W, MAP_H, WORLD_DRAW, RIVALRIES, GENERIC_CRISES, EVENTS, PERMANENT, REL, BASE, SITE, HARSH, NUKE, INTEL, OPS, CONF, STAGES, RESOLUTIONS, COUNCIL, UN_VP } = require('./game');
+const META = { FACTIONS, UNITS, BUILDINGS, TERR, RES, TECHS, GENERALS, CRISIS_ACTIONS, MAP_W, MAP_H, WORLD_DRAW, RIVALRIES, GENERIC_CRISES, EVENTS, PERMANENT, REL, BASE, SITE, HARSH, NUKE, INTEL, OPS, CONF, STAGES, RESOLUTIONS, COUNCIL, UN_VP };
 const { botTurn } = require('./bot');
 
 const PORT = process.env.PORT || 3000;
@@ -42,7 +42,7 @@ const clean = (s, n = 20) => String(s || '').replace(/[<>]/g, '').trim().slice(0
 
 function lobbyState(room) {
   return {
-    type: 'lobby', code: room.code, host: room.host, duration: room.duration, map: room.map,
+    type: 'lobby', code: room.code, host: room.host, duration: room.duration, map: room.map, mode: room.mode, stars: room.stars, seats: room.seats, nukeWin: room.nukeWin,
     players: room.players.map((p) => ({ id: p.id, name: p.name, faction: p.faction, team: p.team, bot: p.bot, online: p.bot || !!(p.ws && p.ws.readyState === 1) })),
   };
 }
@@ -53,7 +53,7 @@ function broadcastChat(room, msg, sender) {
 }
 
 function startGame(room) {
-  room.game = new Game(room.players, { speed: DURATIONS[room.duration] || 1, map: room.map });
+  room.game = new Game(room.players, { speed: DURATIONS[room.duration] || 1, map: room.map, mode: room.mode, stars: room.stars, seats: room.seats, nukeWin: room.nukeWin });
   room.started = true;
   for (const p of room.players) send(p.ws, { type: 'started' });
 }
@@ -68,7 +68,7 @@ wss.on('connection', (ws) => {
 
     if (m.type === 'create' || m.type === 'join' || m.type === 'resume') {
       if (m.type === 'create') {
-        room = { code: newCode(), players: [], host: null, duration: 120, map: 'world', started: false, game: null, created: Date.now() };
+        room = { code: newCode(), players: [], host: null, duration: 120, map: 'world', mode: 'domination', stars: 0, seats: -1, nukeWin: 'win', started: false, game: null, created: Date.now() };
         rooms.set(room.code, room);
       } else {
         room = rooms.get(String(m.code || '').toUpperCase().trim());
@@ -109,6 +109,10 @@ wss.on('connection', (ws) => {
       else if (m.type === 'setName') me.name = clean(m.name) || me.name;
       else if (isHost && m.type === 'setDuration' && DURATIONS[m.duration]) room.duration = Number(m.duration);
       else if (isHost && m.type === 'setMap' && ['world', 'random'].includes(m.map)) room.map = m.map;
+      else if (isHost && m.type === 'setMode' && ['domination', 'nuclear'].includes(m.mode)) room.mode = m.mode;
+      else if (isHost && m.type === 'setStars' && [0, 3, 4, 5, 6, 7, 8].includes(Number(m.stars))) room.stars = Number(m.stars);
+      else if (isHost && m.type === 'setSeats' && [-1, 0, 1, 2, 3, 4, 5].includes(Number(m.seats))) room.seats = Number(m.seats);
+      else if (isHost && m.type === 'setNukeWin' && ['win', 'vp'].includes(m.nukeWin)) room.nukeWin = m.nukeWin;
       else if (isHost && m.type === 'addBot') {
         if (room.players.length >= 8) return err('الغرفة ممتلئة');
         const fk = Object.keys(FACTIONS);

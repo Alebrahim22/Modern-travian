@@ -174,6 +174,12 @@ function renderLobby() {
   if (me) { $('#myFaction').innerHTML = factionOptions(me.faction); $('#myTeam').value = me.team; }
   $('#duration').value = lobby.duration;
   $('#mapSel').value = lobby.map;
+  $('#modeSel').value = lobby.mode;
+  $('#starsSel').value = lobby.stars;
+  $('#seatsSel').value = lobby.seats;
+  $('#nukeWinSel').value = lobby.nukeWin;
+  for (const el of document.querySelectorAll('.nuke-only')) el.classList.toggle('hidden', lobby.mode !== 'nuclear');
+  $('#lobbyRules').innerHTML = lobbyRules();
   $('#hostControls').classList.toggle('hidden', !isHost);
   $('#waitHost').classList.toggle('hidden', isHost);
 }
@@ -187,6 +193,21 @@ $('#myFaction').onchange = (e) => { localStorage.setItem('faction', e.target.val
 $('#myTeam').onchange = (e) => send({ type: 'setTeam', team: e.target.value });
 $('#duration').onchange = (e) => send({ type: 'setDuration', duration: Number(e.target.value) });
 $('#mapSel').onchange = (e) => send({ type: 'setMap', map: e.target.value });
+$('#modeSel').onchange = (e) => send({ type: 'setMode', mode: e.target.value });
+$('#starsSel').onchange = (e) => send({ type: 'setStars', stars: Number(e.target.value) });
+$('#seatsSel').onchange = (e) => send({ type: 'setSeats', seats: Number(e.target.value) });
+$('#nukeWinSel').onchange = (e) => send({ type: 'setNukeWin', nukeWin: e.target.value });
+// the win conditions everyone sees before the match starts
+function lobbyRules() {
+  const stars = lobby.stars ? `${lobby.stars} مراكز ⭐` : 'مراكز ⭐ (عددها حسب اللاعبين)';
+  if (lobby.mode !== 'nuclear') return `🏆 <b>النمط: ⭐ السيطرة.</b> احتل ${stars} واجمع نقاط النصر. أول فريق يوصل للهدف يفوز، وإذا خلص الوقت يفوز الأعلى نقاطاً. أضف بوتات لو تبي تجرّب لحالك.`;
+  const n = lobby.players.length, seats = lobby.seats < 0 ? Math.max(1, Math.round(n / 3)) : lobby.seats;
+  return `☢️ <b>النمط: سباق النووي.</b> ثلاث طرق للفوز:<br>
+    1. 💥 <b>التجربة النووية</b>: ${lobby.nukeWin === 'win' ? 'أول تجربة ناجحة <b>تفوز فوراً</b> مع حلفائها وشركائها السريين' : 'التجربة الناجحة تعطي <b>+150 نقطة نصر</b>'}.<br>
+    2. ⭐ <b>السيطرة</b>: احتل ${stars} وأول فريق يوصل لهدف النقاط يفوز.<br>
+    3. 🕊️ <b>نهاية الوقت</b>: الأعلى نقاطاً يفوز، وإيقاف برامج الآخرين يعطي نقاط كبيرة.<br>
+    🏛️ مجلس الأمن يجتمع كل 15 دقيقة لعب · 🌐 5 مراكز نفوذ أممية · 🪑 ${seats ? `${seats} مقاعد دائمة (صوتها بصوتين)` : 'بدون مقاعد دائمة'}.`;
+}
 $('#addBot').onclick = () => send({ type: 'addBot' });
 $('#startBtn').onclick = () => send({ type: 'start' });
 $('#copyLink').onclick = () => {
@@ -252,6 +273,13 @@ function nextTip() {
   if (capUnits < 15 && !m.queue.length) return { text: 'ابدأ بتجنيد جيش: مشاة ودبابات.', label: 'جنّد', go: () => setTab('train') };
   if (crisisPending()) return { text: '🔥 أزمة دولية! اختر موقفك واكسب نقاط أو علاقات.', label: 'العالم', go: () => setTab('world') };
   if (votePending()) return { text: '🏛️ مجلس الأمن يصوّت على عقوبات. صوّت الآن.', label: 'صوّت', go: () => setTab('world') };
+  if (nuclear()) {
+    if (pactsWaitingForMe().length) return { text: '🤫 عندك عرض شراكة نووية سرية.', label: 'شوف', go: () => setTab('intel') };
+    if (!S.council.session && S.council.chairNext === myId && S.council.next < 150 / S.speed) return { text: '👑 أنت رئيس جلسة مجلس الأمن القادمة. جهّز أدلتك من الاستخبارات.', label: 'التقارير', go: () => setTab('intel') };
+    if (S.nukeMe.intel < 1 && !S.nukeMe.intelJob && S.t > 300) return { text: '🕵️ طوّر جهاز الاستخبارات عشان تكشف البرامج النووية وتكسب نقاط.', label: 'الاستخبارات', go: () => setTab('intel') };
+    const nm = S.nukeMe;
+    if (nm.weaponizing && nm.progress >= 1 && nm.testing == null && !nm.done) return { text: '💣 سلاحك جاهز! أعلن التجربة النووية متى ما تبي.', label: 'التجربة', go: () => setTab('intel') };
+  }
   if (S.proposalsIn.length) return { text: '🤝 عندك عرض تحالف بانتظار ردك.', label: 'شوف', go: () => setTab('dip') };
   const g = goalInfo();
   const freeStrat = S.terr.filter((t) => t.type === 'strategic' && !friendly(t.owner));
@@ -295,9 +323,10 @@ function renderGame() {
   const etaTxt = g.held ? `تملك ${g.held}/${g.total} مراكز ⭐` + (g.eta != null ? ` · تفوز خلال ~${fmtTime(Math.max(0, g.eta))} لو حافظت عليها` : '')
     : `لا تملك أي مركز ⭐ — احتل واحداً لتبدأ جمع النقاط`;
   const prot = S.protection > 0 ? ` · 🛡️ حماية ${fmtTime(S.protection)}` : '';
+  const nukeLine = nuclear() ? `<div class="g2 nuke-line">☢️ ${meta.STAGES[S.nukeMe.stage]}${S.nukeMe.weaponizing ? ' ' + Math.round(S.nukeMe.progress * 100) + '٪' : ''} · 🏛️ ${S.council.session ? '<b>جلسة المجلس الآن</b>' : (S.council.next > S.remaining ? 'لا جلسات أخرى' : 'الجلسة القادمة ' + fmtTime(S.council.next))}</div>` : '';
   $('#goalCard').innerHTML = `<div class="g1"><span>🎯 فريقك ⭐ ${fmt(g.mine)} / ${fmt(S.vpTarget)}</span><span class="tm">⏱️ ${fmtTime(S.remaining)}</span></div>
     <div class="bar gbar">${g.iLead ? '' : `<i class="lead" style="width:${lpct}%"></i>`}<i style="width:${pct}%;position:relative"></i></div>
-    <div class="g2">${leadName}${prot}<br>${etaTxt}</div>`;
+    <div class="g2">${leadName}${prot}<br>${etaTxt}</div>${nukeLine}`;
 
   // incoming attack alert
   const incoming = S.movements.filter((x) => x.hostile && x.mission === 'attack' && S.terr[x.to].owner && friendly(S.terr[x.to].owner)).sort((a, b) => a.eta - b.eta);
@@ -320,11 +349,20 @@ function renderGame() {
   if (S.crisis) bars.push(`🔥 ${S.crisis.title}: ${esc(player(S.crisis.a).name)} ضد ${esc(player(S.crisis.b).name)} <small>(${fmtTime(S.crisis.remaining)})</small>`);
   if (S.vote) bars.push(`🏛️ تصويت على عقوبات ضد ${esc(S.vote.names)} <small>(${fmtTime(S.vote.remaining)})</small>`);
   if (S.sanctions) bars.push(`⛔ عقوبات على ${esc(S.sanctions.names)} <small>(${fmtTime(S.sanctions.remaining)})</small>`);
+  if (nuclear()) {
+    for (const x of S.testing) bars.push(`🌋 تجربة نووية لـ ${esc(player(x.owner).name)} في ${terrName(S.terr[x.fac])}! باقي ${fmtTime(x.remaining)}`);
+    for (const m of S.measures) bars.push(`${meta.RESOLUTIONS[m.kind].name} على ${esc(player(m.target).name)} <small>(${fmtTime(m.remaining)})</small>`);
+  }
   for (const pr of S.projects) bars.push(`☢️ ${esc(pr.name)}: ${pr.ready ? 'السلاح النهائي جاهز!' : 'سلاح نهائي ' + Math.round(pr.progress * 100) + '٪'}`);
   $('#eventBar').innerHTML = bars.map((b) => `<div>${b}</div>`).join('');
   $('#eventBar').classList.toggle('hidden', !bars.length);
 
   const dip = S.proposalsIn.length > 0, world = !!(crisisPending() || votePending());
+  const intelNew = nuclear() && pactsWaitingForMe().length > 0;
+  for (const el of document.querySelectorAll('.nuke-tab')) el.classList.toggle('hidden', !nuclear());
+  $('#intelDot').classList.toggle('hidden', !intelNew);
+  $('#intelDot2').classList.toggle('hidden', !intelNew);
+  renderCouncil();
   $('#dipDot').classList.toggle('hidden', !dip);
   $('#worldDot').classList.toggle('hidden', !world);
   $('#worldDot2').classList.toggle('hidden', !world);
@@ -483,9 +521,13 @@ const TABS = {
     const t = S.terr[ui.selected], T = meta.TERR[t.type];
     const stratHint = t.type === 'strategic' && !friendly(t.owner) ? '<div class="box hint">⭐ هذا مركز قيادة: كل دقيقة تملكه فيها تعطي فريقك 10 نقاط نصر. هذا هو طريق الفوز!</div>' : '';
     const owner = t.owner ? player(t.owner) : null;
-    let h = `<div class="box"><h4>${terrName(t)}</h4>
+    const facNote = { mine: '<div class="box nuke">☢️ <b>منشأتك النووية هنا.</b> احمِها: لو انحتل الموقع يضيع البرنامج.</div>', decoy: '<div class="box">🎭 منشأة وهمية لتضليل استخبارات الأعداء.</div>',
+      testing: '<div class="box crisis">🌋 <b>تجربة نووية جارية هنا!</b> اضرب الموقع أو احتله قبل ما تخلص لإفشالها.</div>',
+      suspect: '<div class="box hint">❓ تقرير استخباراتي يشير لمنشأة نووية هنا. لو ضربتها وطلعت وهمية أو فاضية، العالم بيعتبرك معتدي.</div>' }[t.fac] || '';
+    const unHint = t.type === 'un' ? `<div class="box hint">🌐 مركز نفوذ أممي: ${meta.UN_VP} نقاط نصر/د، ومن يملك أكثر مراكز ياخذ مقعداً دائماً في مجلس الأمن (صوته بصوتين).</div>` : '';
+    let h = facNote + unHint + `<div class="box"><h4>${terrName(t)}</h4>
       <div class="stats">المالك: ${owner ? `<span class="swatch" style="background:${owner.color}"></span>${esc(owner.name)}` : 'محايد'}</div>
-      <div class="stats">الإنتاج: ${Object.keys(T.prod).filter((r) => T.prod[r]).map((r) => RES_ICONS[r] + T.prod[r] + '/د').join(' ')}${t.type === 'strategic' ? ' · ⭐ 10 نقاط نصر/د' : ''} · 👥 سكان ${T.pop}</div></div>` + stratHint;
+      <div class="stats">الإنتاج: ${Object.keys(T.prod).filter((r) => T.prod[r]).map((r) => RES_ICONS[r] + T.prod[r] + '/د').join(' ')}${t.type === 'strategic' ? ' · ⭐ 10 نقاط نصر/د' : t.type === 'un' ? ` · 🌐 ${meta.UN_VP} نقاط نصر/د` : ''} · 👥 سكان ${T.pop}</div></div>` + stratHint;
     h += `<div class="box"><h4>🪖 الحامية</h4>`;
     if (t.units) h += `<div>${unitsLine(t.units)}</div>`;
     else if (t.scout) h += `<div>${unitsLine(t.scout.units)}</div><div class="stats">من تقرير استطلاع قبل ${fmtTime(t.scout.age)}</div>`;
@@ -545,6 +587,7 @@ const TABS = {
       h += `<div class="box"><h4>🔬 جاري بحث ${T[m.research.tech].icon} ${T[m.research.tech].name}</h4><div class="cost">متبقي ${fmtTime(m.research.remaining)}</div><div class="bar"><i style="width:${pct}%"></i></div></div>`;
     }
     for (const [k, t] of Object.entries(T)) {
+      if (nuclear() && k === 'nuclear') continue;
       const done = m.techs[k], ready = t.req.every((r) => m.techs[r]);
       const c = m.techCosts[k];
       h += `<div class="box ${done ? 'done' : ready ? '' : 'locked'}"><h4><span>${t.icon} ${t.name} <span class="tag">المستوى ${t.tier}</span></span>
@@ -567,6 +610,7 @@ const TABS = {
     }
     h += '</div>';
     // superweapon
+    if (nuclear()) return h + `<div class="box hint">☢️ في نمط سباق النووي البرنامج النووي له تبويب خاص: <button class="small" data-goto="intel">🕵️ الاستخبارات</button></div>`;
     h += `<div class="box"><h4>☢️ السلاح النهائي</h4>`;
     if (!m.techs.nuclear) h += `<div class="stats">يحتاج بحث المشروع السري. البناء يستغرق ${fmtTime(m.swTime)} وكل الدول تشاهد تقدمه، واقتحام عاصمتك يؤخره.</div>`;
     else if (!m.sw) {
@@ -579,11 +623,12 @@ const TABS = {
   },
   world() {
     const g = goalInfo();
-    let h = `<div class="box hint"><h4>🏆 كيف تفوز</h4>
+    let h = nuclear() ? nuclearWorldHtml() : `<div class="box hint"><h4>🏆 كيف تفوز</h4>
       أول فريق يجمع <b>${fmt(S.vpTarget)} ⭐</b> يفوز. وإذا انتهى الوقت (${fmtTime(S.remaining)}) يفوز صاحب أعلى نقاط.<br>
       ⭐ كل مركز قيادة تملكه = 10 نقاط كل دقيقة. وتكسب نقاط إضافية من الأزمات الدولية (وساطة أو دعم الطرف الفائز).<br>
       فريقك الآن: <b>⭐ ${fmt(g.mine)}</b> · يملك <b>${g.held}/${g.total}</b> مراكز${g.eta != null ? ` · يوصل للهدف خلال ~${fmtTime(g.eta)}` : ''}.
       <div class="bar"><i style="width:${Math.min(100, (100 * g.mine) / S.vpTarget)}%"></i></div></div>`;
+    if (nuclear()) h += `<div class="box"><div class="stats">فريقك ⭐ ${fmt(g.mine)} / ${fmt(S.vpTarget)} · يملك ${g.held}/${g.total} مراكز ⭐</div><div class="bar"><i style="width:${Math.min(100, (100 * g.mine) / S.vpTarget)}%"></i></div></div>`;
     const nm = (id) => { const p = player(id); return `${meta.FACTIONS[p.faction].flag} ${esc(p.name)}`; };
     const c = S.crisis;
     if (c) {
@@ -685,6 +730,250 @@ const TABS = {
   },
 };
 
+// ---------------- nuclear race mode ----------------
+const nuclear = () => S && S.mode === 'nuclear';
+const pname = (id) => { const p = player(id); return p ? `${meta.FACTIONS[p.faction].flag} ${esc(p.name)}` : '?'; };
+const confTag = (c) => `<span class="tag conf-${c}">${meta.CONF[c].name}</span>`;
+const stageName = (st) => meta.STAGES[st] || st;
+const nukeN = () => S.nukeMe;
+const myTargets = () => S.players.filter((p) => p.id !== myId && !friendly(p.id));
+const playerOptions = (list, key) => {
+  const sel = ui.inputs[key];
+  return list.map((p) => `<option value="${p.id}" ${p.id === sel ? 'selected' : ''}>${meta.FACTIONS[p.faction].flag} ${esc(p.name)}</option>`).join('');
+};
+const mySites = (filter) => S.terr.filter((t) => t.owner === myId && (!filter || filter(t)));
+const siteOptions = (list) => list.map((t) => `<option value="${t.id}">${t.type === 'capital' ? '🏛️ العاصمة' : `${meta.TERR[t.type].icon} ${esc(t.name || meta.TERR[t.type].name)}`}</option>`).join('');
+const pactsWaitingForMe = () => (S.nukeMe ? S.nukeMe.pacts.filter((x) => x.status === 'pending' && (x.by === x.owner ? x.partner : x.owner) === myId) : []);
+const councilAction = () => {
+  const s = S.council && S.council.session;
+  if (!s) return null;
+  if (s.phase === 'propose' && s.chair === myId) return 'propose';
+  if (s.phase === 'vote' && !s.mine) return 'vote';
+  return null;
+};
+
+function programBox() {
+  const n = nukeN(), N = meta.NUKE, sp = S.speed;
+  let h = `<div class="box nuke"><h4><span>☢️ برنامجك النووي</span><span class="tag">${stageName(n.stage)}</span></h4>`;
+  if (n.done) return h + `<div class="stats good">💥 أجريت تجربتك النووية وصرت قوة نووية.</div></div>`;
+  if (n.job) {
+    const pct = 100 * (1 - n.job.remaining / n.job.total);
+    h += `<div class="stats">${n.job.kind === 'research' ? '🔬 البحث النووي' : '⚛️ التخصيب'} جارٍ · متبقي ${fmtTime(n.job.remaining)}</div><div class="bar"><i style="width:${pct}%"></i></div>`;
+  } else if (n.level === 0) {
+    h += `<div class="stats">البحث النووي مدني ومسموح، والتفتيش الدولي يقدر يكشفه. بعده تقدر تخصّب وتاخذ طاقة مدنية +15٪ لكل إنتاجك.</div>
+      <div class="cost">${costHtml(N.research.cost)} · ⏱️${fmtTime(N.research.time / sp)}</div>
+      <button class="primary block" data-nuke="research" ${canAfford(N.research.cost) ? '' : 'disabled'}>🔬 ابدأ البحث النووي</button>`;
+  } else if (n.level === 1) {
+    h += `<div class="stats">التخصيب يحتاج <b>منشأة سرية</b> في موقع تملكه. مكانها مخفي حتى عن حلفائك. العاصمة صعبة الاقتحام لكنها أول مكان يشك فيه الأعداء (تجسسهم عليك أسهل)، والموقع البعيد أصعب بالاكتشاف لكن لو انحتل يضيع البرنامج.</div>
+      <div class="unitrow"><span>📍 مكان المنشأة</span><select data-key="nuke-site">${siteOptions(mySites())}</select></div>
+      <div class="cost">${costHtml(N.enrich.cost)} · ⏱️${fmtTime(N.enrich.time / sp)}</div>
+      <button class="primary block" data-nuke="enrich" ${canAfford(N.enrich.cost) ? '' : 'disabled'}>⚛️ ابنِ المنشأة وابدأ التخصيب</button>`;
+  }
+  if (n.fac != null) h += `<div class="stats">📍 المنشأة في ${terrName(S.terr[n.fac])}${n.level >= 2 ? ' · ⚡ طاقة مدنية: إنتاجك +15٪' : ''}</div>`;
+  if (n.level >= 2 && !n.weaponizing) {
+    h += `<div class="sep"></div><b>💣 التسليح (سري)</b><div class="stats">ما يكشفه التفتيش، فقط الاستخبارات. التكلفة ${costHtml(N.weapon.cost)} تُدفع بالتدريج.</div>`;
+    if (n.weaponOpensIn > 0) h += `<div class="stats">🔒 متاح بعد ${fmtTime(n.weaponOpensIn)} (من الدقيقة ${N.weapon.minT / 60})</div>`;
+    else h += Object.entries(N.pace).map(([k, p]) => `<div class="unitrow"><span>${p.name} · ${p.min} دقيقة لعب<br><small class="stats">${k === 'slow' ? 'تجسسهم عليك أصعب' : k === 'fast' ? 'تجسسهم أسهل وتطلع تسريبات عامة كل 10 دقائق' : 'بدون تأثير على السرية'}</small></span><button class="small ${k === 'normal' ? 'primary' : ''}" data-nuke-weapon="${k}">ابدأ</button></div>`).join('');
+  }
+  if (n.weaponizing) {
+    h += `<div class="sep"></div><b>💣 التسليح ${Math.round(n.progress * 100)}٪</b><div class="bar"><i style="width:${n.progress * 100}%;background:var(--bad)"></i></div>`;
+    if (n.testing != null) h += `<div class="stats neg">🌋 التجربة جارية! باقي ${fmtTime(n.testing)}. دافع عن المنشأة!</div>`;
+    else if (n.progress >= 1) {
+      h += `<div class="stats good">السلاح جاهز.</div>` + (ui.confirmTest
+        ? `<div class="box"><div class="stats">التجربة تُعلن للعالم كله ويُكشف مكان المنشأة. لو انضربت أو انحتلت خلال ${N.test / 60} دقائق لعب تفشل.</div><div class="row"><button class="danger" data-nuke="test">💥 أكّد التجربة</button><button data-nuke="test-cancel">إلغاء</button></div></div>`
+        : `<button class="danger block" data-nuke="test-ask">💥 أعلن التجربة النووية</button>`);
+    } else {
+      h += `<div class="stats">${n.stalled ? '<b class="neg">⏸️ متوقف: مواردك ما تكفي للدفعات</b> · ' : ''}متبقي تقريباً ${n.weaponEta != null ? fmtTime(n.weaponEta) : '?'}${n.funded > 0 ? ` · تمويل الشركاء ${Math.round(n.funded * 100)}٪ (يسرّع)` : ''}</div>
+        <div class="loc-chips">${Object.entries(N.pace).map(([k, p]) => `<button data-nuke-pace="${k}" class="${n.pace === k ? 'active' : ''}">${p.name}</button>`).join('')}</div>`;
+    }
+    const bank = Object.keys(n.bank).filter((r) => n.bank[r] >= 1);
+    if (bank.length) h += `<div class="stats">💸 صندوق التمويل السري: ${bank.map((r) => RES_ICONS[r] + fmt(n.bank[r])).join(' ')}</div>`;
+  }
+  if (n.fac != null && !n.done) {
+    h += `<div class="sep"></div><b>🎭 منشآت وهمية (${n.decoys.length}/${N.maxDecoys})</b><div class="stats">تضلل عملية "تحديد المنشأة" إذا كانت ثقتها ضعيفة أو متوسطة.${n.decoys.length ? ' الحالية: ' + n.decoys.map((id) => terrName(S.terr[id])).join('، ') : ''}</div>`;
+    const spots = mySites((t) => t.id !== n.fac && !n.decoys.includes(t.id));
+    if (n.decoys.length < N.maxDecoys && spots.length) h += `<div class="unitrow"><select data-key="decoy-site">${siteOptions(spots)}</select><button class="small" data-nuke="decoy" ${canAfford(N.decoy) ? '' : 'disabled'}>بناء ${costHtml(N.decoy)}</button></div>`;
+  }
+  return h + '</div>';
+}
+
+function pactsBox() {
+  const n = nukeN(), N = meta.NUKE, need = Math.round(N.weaponValue * N.partnerShare);
+  let h = `<div class="box"><h4>🤫 الشراكات السرية</h4><div class="stats">الشريك اللي يموّل ${Math.round(N.partnerShare * 100)}٪ (${fmt(need)}) من التسليح يفوز مع صاحب البرنامج. التمويل يترك آثار يقدر "تتبع التمويل" يكشفها، والانكشاف = عقوبات و−30 نقطة. أقصى شريكين.</div>`;
+  for (const x of pactsWaitingForMe()) {
+    const other = x.by;
+    h += `<div class="mission">📩 ${pname(other)} ${x.by === x.owner ? 'يعرض عليك شراكة سرية في برنامجه' : 'يعرض دعم برنامجك بالسر'}
+      <div class="row"><button class="small primary" data-pact-answer="${x.id}" data-ok="1">قبول</button><button class="small" data-pact-answer="${x.id}" data-ok="0">رفض</button></div></div>`;
+  }
+  for (const x of n.pacts) {
+    if (x.status === 'pending') { if (x.by === myId) h += `<div class="stats">⏳ بانتظار رد ${pname(x.owner === myId ? x.partner : x.owner)}</div>`; continue; }
+    const st = { active: '<span class="tag good">نشطة</span>', exposed: '<span class="tag bad">مكشوفة</span>', betrayed: '<span class="tag bad">انتهت بخيانة</span>' }[x.status] || '';
+    if (x.owner === myId) h += `<div class="mv">🤝 ${pname(x.partner)} يدعم برنامجك ${st} · مساهمته ${Math.round(x.share * 100)}٪${x.share >= N.partnerShare ? ' ✓ مؤهل للفوز معك' : ''}</div>`;
+    else {
+      h += `<div class="mv">🤝 تدعم برنامج ${pname(x.owner)} ${st} · مساهمتك ${Math.round(x.share * 100)}٪${x.share >= N.partnerShare ? ' ✓ مؤهل' : ` (تحتاج ${Math.round(N.partnerShare * 100)}٪)`}${x.ownerStage ? `<br><small>برنامجه: ${stageName(x.ownerStage)} ${Math.round(x.ownerProgress * 100)}٪</small>` : ''}`;
+      if (['active', 'exposed'].includes(x.status)) h += `<div class="unitrow"><span>💸</span><input type="number" min="0" placeholder="💰" data-key="fund-money-${x.id}"><input type="number" min="0" placeholder="🛢️" data-key="fund-oil-${x.id}"><input type="number" min="0" placeholder="🔩" data-key="fund-steel-${x.id}"><button class="small primary" data-pact-fund="${x.id}">موّل</button></div>`;
+      h += '</div>';
+    }
+  }
+  const others = myTargets();
+  if ((n.level >= 2 || n.weaponizing) && !n.done && others.length) {
+    h += `<div class="unitrow"><span>عرض شراكة على</span><select data-key="pact-to">${playerOptions(others, 'pact-to')}</select><button class="small" data-pact="offer">إرسال سراً</button></div>`;
+  }
+  const known = others.filter((p) => n.reports.some((r) => r.target === p.id && r.kind === 'spy' && ['enrich', 'weapon'].includes(r.data.stage)));
+  if (known.length) h += `<div class="unitrow"><span>ادعم برنامج</span><select data-key="support-to">${playerOptions(known, 'support-to')}</select><button class="small" data-pact="support">اعرض دعمك</button></div>`;
+  return h + '</div>';
+}
+
+function agencyBox() {
+  const n = nukeN(), fast = ['russia', 'uk'].includes(me().faction);
+  let h = `<div class="box"><h4>🕵️ جهاز الاستخبارات</h4>${fast ? '<div class="stats good">🎖️ دولتك تطوّر الاستخبارات أرخص وأسرع 40٪ وعملياتها أسرع.</div>' : ''}`;
+  if (n.intelJob) h += `<div class="stats">🔨 جاري تطوير ${n.intelJob.kind === 'agency' ? 'الجهاز' : 'مكافحة التجسس'} · متبقي ${fmtTime(n.intelJob.remaining)}</div><div class="bar"><i style="width:${100 * (1 - n.intelJob.remaining / n.intelJob.total)}%"></i></div>`;
+  for (const [k, label, desc, lvl] of [['agency', '🕵️ الجهاز', 'كل مستوى يرفع دقة تقاريرك', n.intel], ['counter', '🛡️ مكافحة التجسس', 'كل مستوى يصعّب التجسس عليك ويكشف عملياتهم', n.counter]]) {
+    const c = n.intelCost[k];
+    h += `<div class="unitrow"><span>${label} <span class="tag">مستوى ${lvl}/5</span><br><small class="stats">${desc}</small>${c ? `<br><small class="cost">${costHtml(c)} · ⏱️${fmtTime(n.intelTime[k])}</small>` : ''}</span>
+      ${c ? `<button class="small" data-intel-up="${k}" ${n.intelJob || !canAfford(c) ? 'disabled' : ''}>تطوير</button>` : '<span class="tag good">الأقصى</span>'}</div>`;
+  }
+  return h + '</div>';
+}
+
+function opsBox() {
+  const n = nukeN(), O = meta.OPS, foes = myTargets();
+  let h = `<div class="box"><h4>🎯 العمليات</h4>`;
+  if (n.intel < 1) return h + '<div class="stats">طوّر جهاز الاستخبارات للمستوى 1 لتبدأ العمليات.</div></div>';
+  if (!foes.length) return h + '<div class="stats">لا توجد دول خارج تحالفك.</div></div>';
+  h += `<div class="stats">الدقة = مستوى جهازك + الأقمار الصناعية − مكافحة التجسس عندهم. التقرير الضعيف ممكن يكون غلط، والعملية ممكن تنكشف.</div>
+    <div class="unitrow"><span>الهدف</span><select data-key="op-target">${playerOptions(foes, 'op-target')}</select></div>`;
+  if (n.opIn > 0) h += `<div class="stats">⏳ الجهاز مشغول، العملية التالية بعد ${fmtTime(n.opIn)}</div>`;
+  for (const [k, o] of Object.entries(O)) {
+    h += `<div class="unitrow"><span>${o.name}<br><small class="stats">${o.desc}</small><br><small class="cost">${costHtml(o.cost)}</small></span><button class="small ${k === 'cyber' ? 'danger' : ''}" data-op="${k}" ${n.opIn > 0 || !canAfford(o.cost) ? 'disabled' : ''}>نفّذ</button></div>`;
+  }
+  return h + '</div>';
+}
+
+function reportsBox() {
+  const n = nukeN();
+  let h = `<div class="box"><h4>📁 التقارير (${n.reports.length})</h4><div class="stats">تقاريرك وتقارير حلفائك. قدّمها في جلسات مجلس الأمن كدليل.</div>`;
+  if (!n.reports.length) h += '<div class="stats">لا توجد تقارير بعد.</div>';
+  for (const r of n.reports) h += `<div class="mv report">${pname(r.target)} · ${meta.OPS[r.kind].name} ${confTag(r.conf)}${r.by !== myId ? ` <span class="tag">من ${pname(r.by)}</span>` : ''}<br><small>${esc(r.text)} · قبل ${fmtTime(r.ago)}</small></div>`;
+  return h + '</div>';
+}
+
+TABS.intel = () => {
+  if (!nuclear()) return '<p class="sub">الاستخبارات متاحة في نمط سباق النووي فقط.</p>';
+  return programBox() + pactsBox() + agencyBox() + opsBox() + reportsBox();
+};
+
+// what the world knows about the nuclear race: council, measures, seats
+function nuclearWorldHtml() {
+  const c = S.council, R = meta.RESOLUTIONS;
+  let h = `<div class="box hint"><h4>☢️ سباق النووي: كيف تفوز</h4>
+    1. 💥 <b>التجربة النووية</b>: ${S.nukeWin === 'win' ? 'أول تجربة ناجحة تفوز فوراً مع الحلفاء والشركاء السريين المؤهلين' : `+${meta.NUKE.vp.test} نقطة نصر`}.<br>
+    2. ⭐ <b>السيطرة</b>: أول فريق يجمع ${fmt(S.vpTarget)} نقطة.<br>
+    3. 🕊️ <b>نهاية الوقت</b> (${fmtTime(S.remaining)}): الأعلى نقاطاً. إيقاف البرامج يعطي نقاط: احتلال المنشأة +${meta.NUKE.vp.capture}، ضربها +${meta.NUKE.vp.strike}، تخريب سيبراني +${meta.NUKE.vp.cyber}، فضح التسليح في المجلس +${meta.NUKE.vp.expose}.</div>`;
+  h += `<div class="box"><h4>🏛️ مجلس الأمن</h4><div class="stats">${c.session ? `الجلسة ${c.session.n} منعقدة الآن` : c.next > S.remaining ? 'انتهت جلسات هذه المباراة' : `الجلسة القادمة بعد ${fmtTime(c.next)} برئاسة ${pname(c.chairNext)}`}</div>`;
+  if (c.last) h += `<div class="stats">آخر جلسة: ${c.last.res ? `${R[c.last.res].name} على ${pname(c.last.target)} ${c.last.passed ? '✅ أُقر' : '❌ سقط'}` : 'بدون قرار'}</div>`;
+  h += `<div class="stats">🪑 المقاعد الدائمة (${S.seats}): ${S.seatHolders.length ? S.seatHolders.map(pname).join('، ') : 'لا أحد بعد'} · صوتها بصوتين. احتل مراكز النفوذ 🌐 لتاخذ مقعد.</div>`;
+  const un = S.terr.filter((t) => t.type === 'un');
+  h += `<div class="stats">🌐 مراكز النفوذ: ${un.map((t) => `${esc(t.name)}${t.owner ? ' (' + pname(t.owner) + ')' : ''}`).join('، ')}</div></div>`;
+  if (S.measures.length) h += `<div class="box"><h4>⛔ القرارات السارية</h4>${S.measures.map((m) => `<div class="stats">${R[m.kind].name} على ${pname(m.target)} · متبقي ${fmtTime(m.remaining)}</div>`).join('')}</div>`;
+  const pub = Object.entries(S.publicNuke);
+  if (pub.length) h += `<div class="box"><h4>🔍 ما يعرفه العالم</h4>${pub.map(([id, x]) => `<div class="stats">${pname(id)}: ${stageName(x.stage)}</div>`).join('')}<div class="stats">التفتيش يكشف البحث والتخصيب فقط، التسليح سري.</div></div>`;
+  return h;
+}
+
+// ---------------- council card ----------------
+function councilHtml() {
+  const s = S.council.session, R = meta.RESOLUTIONS, n = nukeN();
+  const head = `<div class="council-head"><b>🏛️ مجلس الأمن · الجلسة ${s.n}</b><span class="tm">⏱️ ${fmtTime(s.remaining)}</span><button class="icon-btn" data-council-min="1" aria-label="تصغير">▾</button></div>`;
+  let h = head;
+  if (s.phase === 'propose') {
+    if (s.chair !== myId) return h + `<div class="stats">الرئيس ${pname(s.chair)} يختار القرار...</div>`;
+    const res = ui.inputs['c-res'] && s.targets[ui.inputs['c-res']].length ? ui.inputs['c-res'] : Object.keys(R).find((k) => s.targets[k].length);
+    if (!res) return h + '<div class="stats">ما في قرار ممكن الحين.</div>';
+    const targets = s.targets[res].map((id) => player(id));
+    const tgt = targets.some((p) => p.id === ui.inputs['c-target']) ? ui.inputs['c-target'] : targets[0].id;
+    const evid = n.reports.filter((r) => r.target === tgt);
+    h += `<div class="stats">👑 <b>أنت الرئيس!</b> اختر قراراً ودولة، وأرفق دليل لو عندك.</div>
+      <select data-ckey="c-res">${Object.entries(R).filter(([k]) => s.targets[k].length).map(([k, r]) => `<option value="${k}" ${k === res ? 'selected' : ''}>${r.name}</option>`).join('')}</select>
+      <div class="stats">${R[res].desc}</div>
+      <select data-ckey="c-target">${targets.map((p) => `<option value="${p.id}" ${p.id === tgt ? 'selected' : ''}>${meta.FACTIONS[p.faction].flag} ${esc(p.name)}</option>`).join('')}</select>
+      ${evid.length ? `<select data-ckey="c-report">${evid.map((r) => `<option value="${r.id}">📄 ${meta.OPS[r.kind].name} · ${meta.CONF[r.conf].name} · ${esc(r.text)}</option>`).join('')}<option value="">بدون دليل</option></select>` : ''}
+      <button class="primary block" data-council="propose" data-res="${res}" data-target="${tgt}">📜 اطرح القرار للتصويت</button>`;
+    return h;
+  }
+  h += `<div class="council-res">${R[s.res].name} على ${pname(s.target)}</div><div class="stats">${R[s.res].desc}</div>
+    <div class="tally"><span class="good">مع ${s.yes}</span> · <span class="neg">ضد ${s.no}</span> <small class="sub">(صوّت ${s.voters} · المقعد الدائم بصوتين)</small></div>`;
+  if (s.evidence.length) h += `<div class="stats">📄 الأدلة:</div>` + s.evidence.map((r) => `<div class="stats">• ${pname(r.by)}: ${meta.OPS[r.kind].name} ${confTag(r.conf)} ${esc(r.text)}</div>`).join('');
+  if (s.mine) h += `<div class="stats">صوتك: <b>${{ yes: '✅ مع', no: '❌ ضد', abstain: '⚪ امتناع' }[s.mine]}</b></div>`;
+  else h += `<div class="row vote-row"><button class="primary" data-council-vote="yes">✅ مع</button><button class="danger" data-council-vote="no">❌ ضد</button><button data-council-vote="abstain">⚪ امتناع</button></div>`;
+  const used = new Set(s.evidence.map((r) => r.id));
+  const mine = n.reports.filter((r) => r.target === s.target && !used.has(r.id));
+  if (mine.length) h += `<div class="unitrow"><select data-ckey="c-ev">${mine.map((r) => `<option value="${r.id}">${meta.OPS[r.kind].name} · ${meta.CONF[r.conf].name} · ${esc(r.text)}</option>`).join('')}</select><button class="small" data-council="evidence">📄 قدّم</button></div>`;
+  if (n.pacts.some((x) => x.owner === s.target && x.partner === myId && ['active', 'exposed'].includes(x.status)))
+    h += `<button class="danger block" data-council="insider">🗡️ افضح شريكك بتقرير من الداخل (تكسب +${meta.NUKE.vp.expose} وتنجو من العقوبات)</button>`;
+  return h;
+}
+function renderCouncil() {
+  const el = $('#council'), s = nuclear() && S.council.session;
+  if (!s || S.winner) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const min = ui.councilMin === s.id + s.phase;
+  el.classList.toggle('min', min);
+  const html = min ? `<div class="council-pill" data-council-min="0">🏛️ جلسة مجلس الأمن ${councilAction() ? '· <b>دورك!</b>' : ''} ⏱️ ${fmtTime(s.remaining)} ▴</div>` : councilHtml();
+  const active = document.activeElement;
+  if (active && el.contains(active) && active.tagName === 'SELECT') {
+    const tm = el.querySelector('.tm'); if (tm) tm.textContent = '⏱️ ' + fmtTime(s.remaining);
+    return;
+  }
+  if (html === el.dataset.html) return;
+  el.dataset.html = html;
+  el.innerHTML = html;
+  for (const sel of el.querySelectorAll('[data-ckey]')) if (ui.inputs[sel.dataset.ckey] !== undefined && [...sel.options].some((o) => o.value === ui.inputs[sel.dataset.ckey])) sel.value = ui.inputs[sel.dataset.ckey];
+}
+$('#council').addEventListener('change', (e) => {
+  const k = e.target.dataset.ckey; if (!k) return;
+  ui.inputs[k] = e.target.value;
+  e.target.blur();
+  $('#council').dataset.html = ''; renderCouncil();
+});
+$('#council').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-council],[data-council-vote],[data-council-min]'); if (!el) return;
+  const d = el.dataset, s = S.council.session; if (!s) return;
+  if (d.councilMin !== undefined) { ui.councilMin = d.councilMin === '1' ? s.id + s.phase : null; $('#council').dataset.html = ''; renderCouncil(); return; }
+  if (d.councilVote) cmd({ type: 'councilVote', choice: d.councilVote });
+  else if (d.council === 'propose') {
+    const rep = $('#council [data-ckey="c-report"]');
+    cmd({ type: 'councilPropose', res: d.res, target: d.target, report: rep && rep.value ? Number(rep.value) : undefined });
+  } else if (d.council === 'evidence') {
+    const sel = $('#council [data-ckey="c-ev"]');
+    if (sel) cmd({ type: 'councilEvidence', report: Number(sel.value) });
+  } else if (d.council === 'insider') cmd({ type: 'councilEvidence', insider: true });
+});
+
+// clicks inside the intel tab
+function intelClick(d) {
+  if (d.nuke === 'research') cmd({ type: 'nukeResearch' });
+  else if (d.nuke === 'enrich') cmd({ type: 'nukeEnrich', terr: Number(ui.inputs['nuke-site'] ?? document.querySelector('#tabBody [data-key="nuke-site"]').value) });
+  else if (d.nuke === 'test-ask') { ui.confirmTest = true; renderPanel(true); }
+  else if (d.nuke === 'test-cancel') { ui.confirmTest = false; renderPanel(true); }
+  else if (d.nuke === 'test') { ui.confirmTest = false; cmd({ type: 'nukeTest' }); }
+  else if (d.nuke === 'decoy') cmd({ type: 'nukeDecoy', terr: Number(ui.inputs['decoy-site'] ?? document.querySelector('#tabBody [data-key="decoy-site"]').value) });
+  else if (d.nukeWeapon) cmd({ type: 'nukeWeapon', pace: d.nukeWeapon });
+  else if (d.nukePace) cmd({ type: 'nukePace', pace: d.nukePace });
+  else if (d.intelUp) cmd({ type: 'intelUpgrade', kind: d.intelUp });
+  else if (d.op) cmd({ type: 'op', op: d.op, target: ui.inputs['op-target'] || document.querySelector('#tabBody [data-key="op-target"]').value });
+  else if (d.pactAnswer) cmd({ type: 'pactAnswer', id: Number(d.pactAnswer), accept: d.ok === '1' });
+  else if (d.pact === 'offer') cmd({ type: 'pactOffer', to: ui.inputs['pact-to'] || document.querySelector('#tabBody [data-key="pact-to"]').value });
+  else if (d.pact === 'support') cmd({ type: 'pactSupport', to: ui.inputs['support-to'] || document.querySelector('#tabBody [data-key="support-to"]').value });
+  else if (d.pactFund) {
+    const id = d.pactFund, res = {};
+    for (const r of ['money', 'oil', 'steel']) res[r] = Number(ui.inputs[`fund-${r}-${id}`] || 0);
+    cmd({ type: 'pactFund', id: Number(id), res });
+    for (const r of ['money', 'oil', 'steel']) delete ui.inputs[`fund-${r}-${id}`];
+  } else return false;
+  return true;
+}
+
 function stepper(key, min, max, def) {
   return `<div class="stepper"><button data-step="${key}" data-d="-1" data-min="${min}" data-max="${max}">−</button><input type="number" inputmode="numeric" min="${min}" max="${max}" value="${def}" data-key="${key}"><button data-step="${key}" data-d="1" data-min="${min}" data-max="${max}">+</button></div>`;
 }
@@ -733,8 +1022,8 @@ function updateEta() {
   el.textContent = `⏱️ وقت الوصول: ${fmtTime(secs)} · ⚔️ قوة الهجوم: ${fmt(att)}`;
 }
 
-const TAB_TITLES = { base: '🏛️ عاصمتي', train: '🏭 الجيش', site: '📍 الموقع', moves: '🚀 التحركات', tech: '🔬 الأبحاث والقادة', world: '🌍 العالم والترتيب', trade: '⚖️ التجارة', dip: '🤝 الدبلوماسية', log: '📜 الأحداث', chat: '💬 الدردشة', more: '☰ المزيد' };
-const NAV_OF = { train: 'train', tech: 'tech', dip: 'dip', world: 'world', site: 'map' };
+const TAB_TITLES = { base: '🏛️ عاصمتي', train: '🏭 الجيش', site: '📍 الموقع', moves: '🚀 التحركات', tech: '🔬 الأبحاث والقادة', world: '🌍 العالم والترتيب', intel: '🕵️ الاستخبارات والبرنامج النووي', trade: '⚖️ التجارة', dip: '🤝 الدبلوماسية', log: '📜 الأحداث', chat: '💬 الدردشة', more: '☰ المزيد' };
+const NAV_OF = { train: 'train', tech: 'tech', dip: 'dip', world: 'world', intel: 'intel', site: 'map' };
 
 window.selectTerr = (id) => { ui.selected = id; ui.mode = null; ui.confirmStrike = null; setTab('site'); };
 window.startSend = (from, to) => {
@@ -773,7 +1062,7 @@ function updateBanner() {
 function syncNav() {
   const open = ui.sheetVisible();
   $('#game').classList.toggle('sheet-open', ui.sheet);
-  $('#game').classList.toggle('sheet-full', ui.sheet && ['chat', 'trade', 'dip'].includes(ui.tab));
+  $('#game').classList.toggle('sheet-full', ui.sheet && ['chat', 'trade', 'dip', 'intel'].includes(ui.tab));
   const nav = !isMobile() || open ? NAV_OF[ui.tab] : 'map';
   for (const b of document.querySelectorAll('#bottomNav button')) b.classList.toggle('active', b.dataset.nav === nav);
   $('#sheetTitle').textContent = TAB_TITLES[ui.tab] || '';
@@ -820,6 +1109,7 @@ function setInput(key, v) {
 $('#tabBody').addEventListener('click', (e) => {
   const el = e.target.closest('button,[data-goto]'); if (!el) return;
   const d = el.dataset;
+  if (nuclear() && intelClick(d)) return;
   if (d.goto) setTab(d.goto);
   else if (d.trainAt) { ui.trainAt = Number(d.trainAt); renderPanel(true); }
   else if (d.trainHere) { ui.trainAt = Number(d.trainHere); setTab('train'); }
@@ -925,11 +1215,37 @@ function guideHtml() {
     <b>كيف تنتهي؟</b><ul><li>سلام: إذا اجتمعت وساطات كافية (اثنتين، وتزيد واحدة لكل طرف مصعّد)، أو إذا الطرفين هدّؤوا مع وساطة واحدة.</li>
     <li>غير كذا لما يخلص الوقت يفوز الطرف الي دعمه أكبر (+40) وداعموه (+20 لكل واحد).</li></ul>
     <div class="ex">مثال: أزمة كشمير بين 🇮🇳 الهند و🇵🇰 باكستان. 🇸🇦 السعودية تقدر تتوسط وتكسب الطرفين و+40 نقطة لو نجح السلام. أو تدعم باكستان عسكرياً فتقوى باكستان وتتحسن العلاقة معها، بس الهند بتزعل.</div>`);
-  h += sec('🏛️ مجلس الأمن والعقوبات', `<ul>
+  h += sec('🏛️ مجلس الأمن والعقوبات (نمط السيطرة)', `<ul>
     <li>من الدقيقة 35 وكل 25 دقيقة، إذا فيه 3 فرق أو أكثر، يصوّت المجلس على معاقبة <b>الفريق المتصدر</b>.</li>
     <li>العقوبات: إنتاج -25٪ وإغلاق السوق 10 دقائق.</li>
     <li>تنجح لو صوّتت الأغلبية "مع"، إلا إذا استخدم عضو دائم <b>الفيتو</b>: ${(meta.PERMANENT || []).map(flagOf).join(' ')}.</li>
     <li>لو أنت المتصدر: اطلب من حليف أو دولة صديقة عضو دائم يستخدم الفيتو لك.</li></ul>`);
+  const N = meta.NUKE, I = meta.INTEL, Rz = meta.RESOLUTIONS;
+  if (N) h += sec('☢️ نمط سباق النووي', `<p>نمط ثاني يختاره صاحب الغرفة. حرب باردة: الكل يشك في الكل، والسلاح النووي يُبنى في السر. طرق الفوز: 💥 أول تجربة نووية ناجحة (فوز فوري أو +${N.vp.test} نقطة حسب إعداد صاحب الغرفة)، أو ⭐ هدف النقاط، أو 🕊️ أعلى نقاط بنهاية الوقت.</p>
+    <b>مراحل البرنامج:</b><ul>
+    <li>🔬 <b>بحث نووي</b> (مدني) ${cost(N.research.cost)} · ${N.research.time / 60} دقائق لعب.</li>
+    <li>⚛️ <b>تخصيب</b> (مدني) ${cost(N.enrich.cost)} · ${N.enrich.time / 60} دقيقة. يحتاج <b>منشأة سرية</b> في موقع تملكه، ويعطي <b>طاقة مدنية: إنتاجك +15٪</b>. فالتخصيب بحد ذاته مو دليل على سلاح.</li>
+    <li>💣 <b>تسليح</b> (سري) ${cost(N.weapon.cost)} تُدفع بالتدريج، من الدقيقة ${N.weapon.minT / 60}. السرعة: 🐢 هادئة ${N.pace.slow.min} دقيقة (أصعب بالتجسس) · ⚖️ عادية ${N.pace.normal.min} · 🐇 سريعة ${N.pace.fast.min} (أسهل بالتجسس وتسريبات عامة).</li>
+    <li>💥 <b>تجربة</b>: تُعلن للكل ويُكشف مكان المنشأة، وعندهم ${N.test / 60} دقائق لعب يضربونها أو يحتلونها لإفشالها.</li></ul>
+    <b>🕵️ الاستخبارات:</b><ul>
+    <li>كل دولة تطوّر جهاز استخبارات (1 إلى 5) ومكافحة تجسس (1 إلى 5). 🇷🇺 روسيا و🇬🇧 بريطانيا أرخص وأسرع 40٪ وتبدآن من المستوى 2.</li>
+    <li>العمليات: ${Object.values(meta.OPS).map((o) => `${o.name} (${cost(o.cost)}): ${o.desc}`).join(' · ')}. بعد كل عملية انتظار ${I.cooldown / 60} دقائق (${I.fastCooldown / 60} لروسيا وبريطانيا).</li>
+    <li><b>دقة التقرير</b> = مستوى جهازك + الأقمار الصناعية − مكافحة التجسس عندهم ± سرعة تسليحهم (والمنشأة في العاصمة أسهل بالكشف). 🟢 عالية دائماً صحيحة، 🟡 متوسطة 85٪، 🔴 ضعيفة 60٪ وممكن تكون غلط. وعمليتك ممكن تنكشف.</li>
+    <li>الحلفاء يتشاركون التقارير تلقائياً.</li></ul>
+    <b>🏛️ مجلس الأمن:</b><ul>
+    <li>جلسة كل 15 دقيقة لعب، تستمر دقيقة حقيقية واللعب ما يوقف. الرئاسة بالدور بين كل اللاعبين.</li>
+    <li>الرئيس يختار قراراً ودولة: ${Object.values(Rz).map((r) => `${r.name} (${r.desc})`).join(' · ')}.</li>
+    <li>الكل يقدّم تقارير كأدلة (الكل يشوف درجة ثقتها) ويصوّت. يمر لو "مع" أكثر من "ضد".</li>
+    <li>🌐 <b>مراكز النفوذ الخمسة</b> (مقرات أممية حقيقية): كل مركز ${meta.UN_VP} نقاط/د، ومن يملك أكثر مراكز ياخذ <b>مقعداً دائماً</b> صوته بصوتين. عدد المقاعد يحدده صاحب الغرفة.</li></ul>
+    <b>إيقاف البرامج (نقاط نصر):</b><ul>
+    <li>🏳️ احتلال موقع المنشأة: يدمّر البرنامج (+${N.vp.capture}) · 🚀 ضربة ناجحة بدون احتلال: −35٪ (+${N.vp.strike}) · 🏛️ اقتحام العاصمة لو المنشأة فيها: −25٪ (+${N.vp.raid}) · 💻 تخريب سيبراني: −20٪ (+${N.vp.cyber}).</li>
+    <li>📢 فضح دولة تسلّح فعلاً بقرار يمر ضدها: +${N.vp.expose} لصاحب التقرير · ⛔ عقوبات ناجحة عليها: +${N.vp.sanction} للرئيس.</li>
+    <li>🎭 <b>منشآت وهمية</b> (${cost(N.decoy)}، حدها ${N.maxDecoys}) تضلل تحديد المنشأة. ولو ضربت موقع تظنه منشأة وطلع فاضي، العالم يعتبرك معتدي.</li></ul>
+    <b>🤫 الشراكات السرية:</b><ul>
+    <li>صاحب البرنامج يعرض شراكة سرية، أو الدولة اللي كشفت برنامجه تعرض دعمها.</li>
+    <li>الشريك اللي يموّل ${Math.round(N.partnerShare * 100)}٪ على الأقل من تكلفة التسليح يفوز معه. أقصى ${N.maxPartners} شركاء، والتمويل يسرّع البرنامج.</li>
+    <li>التمويل يترك آثار يكشفها "تتبع التمويل". لو انكشف الشريك: عقوبات 10 دقائق و−30 نقطة وانهيار علاقاته.</li>
+    <li>🗡️ الخيانة مسموحة: الشريك يقدر يفضح صاحب البرنامج في المجلس ويكسب نقاط الفضح.</li></ul>`);
   h += sec('🤝 التحالفات والدبلوماسية', `<ul>
     <li>الحلفاء (نفس الفريق) <b>يتشاركون الرؤية ونقاط النصر</b> ويفوزون مع بعض، وما يقدرون يهاجمون بعض.</li>
     <li>تقدر تحدد الفريق قبل المباراة، أو ترسل <b>عرض تحالف</b> أثناء اللعب من الدبلوماسية. أقصى حجم للتحالف نص عدد الدول.</li>
@@ -1113,12 +1429,12 @@ function draw() {
 
   // territories
   for (const t of S.terr) {
-    const r = (t.type === 'capital' ? 22 : t.type === 'strategic' ? 20 : 15) * K;
+    const r = (t.type === 'capital' ? 22 : t.type === 'strategic' || t.type === 'un' ? 20 : 15) * K;
     const p = t.owner ? player(t.owner) : null;
     ctx.fillStyle = p ? p.color : PAL.neutral;
     ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.lineWidth = t.type === 'strategic' ? 3 : 2;
-    ctx.strokeStyle = t.type === 'strategic' ? '#ffc107' : PAL.ring;
+    ctx.lineWidth = t.type === 'strategic' || t.type === 'un' ? 3 : 2;
+    ctx.strokeStyle = t.type === 'strategic' ? '#ffc107' : t.type === 'un' ? '#4fc3f7' : PAL.ring;
     ctx.stroke();
     if (ui.selected === t.id || ui.sendFrom === t.id && ui.mode === 'send' || ui.sendTo === t.id && ui.mode === 'send') {
       ctx.strokeStyle = PAL.select; ctx.lineWidth = 2.5; ctx.setLineDash([4, 3]);
@@ -1140,12 +1456,19 @@ function draw() {
       ctx.font = `bold ${fs - 2}px sans-serif`; haloText(String(t.base), bx + fs * 0.75, by - fs * 0.5, PAL.label);
       ctx.textAlign = 'center';
     }
+    if (t.fac) {
+      const bx = t.x - r * 0.85, by = t.y - r * 0.8;
+      if (t.fac === 'testing') { ctx.strokeStyle = '#f85149'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(t.x, t.y, r + 9 + 3 * Math.sin(performance.now() / 200), 0, Math.PI * 2); ctx.stroke(); }
+      ctx.font = `${fs}px sans-serif`;
+      ctx.fillStyle = PAL.halo; ctx.beginPath(); ctx.arc(bx, by, fs * 0.85, 0, Math.PI * 2); ctx.fill();
+      ctx.fillText({ mine: '☢️', decoy: '🎭', testing: '🌋', suspect: '❓' }[t.fac], bx, by + 1);
+    }
     if (t.type === 'capital') {
       ctx.font = `bold ${fs}px sans-serif`;
       haloText(meta.FACTIONS[p.faction].flag + ' ' + p.name, t.x, t.y - r - 8, PAL.label);
-    } else if (t.name && (t.type === 'strategic' || cam.z >= 2)) {
-      ctx.font = `${t.type === 'strategic' ? 'bold ' : ''}${fs - 1}px sans-serif`;
-      haloText(t.name, t.x, t.y - r - 7, t.type === 'strategic' ? PAL.strat : PAL.name);
+    } else if (t.name && (t.type === 'strategic' || t.type === 'un' || cam.z >= 2)) {
+      ctx.font = `${t.type === 'strategic' || t.type === 'un' ? 'bold ' : ''}${fs - 1}px sans-serif`;
+      haloText(t.name, t.x, t.y - r - 7, t.type === 'strategic' ? PAL.strat : t.type === 'un' ? '#4fc3f7' : PAL.name);
     }
   }
 }

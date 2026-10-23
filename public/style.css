@@ -251,3 +251,28 @@ table.rank tr.me td { font-weight: 700; }
   #topBtns [data-theme-toggle] { display: none; }
   #bottomNav button { font-size: 11px; }
 }
+
+/* nuclear race mode */
+#council { position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); width: 400px; max-width: calc(100% - 16px); max-height: 70%; overflow-y: auto;
+  background: var(--panel); border: 2px solid #4fc3f7; border-radius: 14px; padding: 10px 12px; box-shadow: var(--shadow); z-index: 4; font-size: 13px; }
+#council.min { padding: 0; border-width: 1px; width: auto; }
+#council select, #council .block { width: 100%; margin: 4px 0; }
+.council-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.council-head b { flex: 1; }
+.council-head .tm { color: var(--warn-text); font-variant-numeric: tabular-nums; font-weight: 700; }
+.council-head .icon-btn { min-height: 30px; padding: 2px 8px; }
+.council-pill { padding: 8px 14px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+.council-res { font-size: 15px; font-weight: 700; margin: 4px 0; }
+.tally { margin: 6px 0; font-weight: 700; }
+.tally .good { color: var(--good-text); } .tally .neg { color: var(--bad-text); }
+.vote-row button { flex: 1; }
+.conf-high { color: var(--good-text); } .conf-medium { color: var(--warn-text); } .conf-low { color: var(--bad-text); }
+.box.nuke { border-color: var(--bad); }
+.box .sep { border-top: 1px dashed var(--line); margin: 8px 0; }
+.mv.report small { color: var(--muted); }
+#goalCard .nuke-line { margin-top: 3px; border-top: 1px solid var(--line); padding-top: 3px; }
+.tag.bad { background: var(--bad); color: #fff; }
+@media (max-width: 899px) {
+  #council { position: fixed; bottom: calc(64px + env(safe-area-inset-bottom)); left: 8px; right: 8px; width: auto; max-width: none; transform: none; max-height: 55vh; z-index: 7; }
+  #council.min { left: auto; right: 8px; }
+}

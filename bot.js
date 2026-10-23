@@ -47,8 +47,8 @@ function botPolitics(g, p) {
 
 function botTech(g, p) {
   const pid = p.id;
-  if (!p.research) {
-    const next = TECH_ORDER.find((k) => !p.techs[k] && TECHS[k].req.every((r) => p.techs[r]));
+  if (!p.research && !(p.saving && Math.random() < 0.9)) {
+    const next = TECH_ORDER.find((k) => !p.techs[k] && TECHS[k].req.every((r) => p.techs[r]) && !(g.nuclear && k === 'nuclear'));
     if (next) {
       const c = g.techCost(next);
       if (RES.every((r) => p.res[r] >= c[r] + 300)) g.cmd(pid, { type: 'research', tech: next });
@@ -63,6 +63,132 @@ function botTech(g, p) {
     const target = strat[0] || foes.sort((a, b) => g.players[b.owner].vp - g.players[a.owner].vp)[0];
     if (target) g.cmd(pid, { type: 'strike', target: target.id });
   }
+}
+
+// ---------- nuclear race mode ----------
+const AGGRESSIVE = ['iran', 'russia', 'pakistan'];
+const seesStage = (g, pid, target, stages, minConf) => g.reports.some((r) => r.kind === 'spy' && r.target === target && g.reportVisible(r, pid)
+  && stages.includes(r.data.stage) && (minConf !== 'medium' || r.conf !== 'low') && g.t - r.t < 20 * 60);
+const afford = (p, c, margin = 0) => RES.every((r) => p.res[r] >= (c[r] || 0) + (c[r] ? margin : 0));
+
+function botNuclear(g, p) {
+  const pid = p.id, n = p.nuke;
+  // cautious: only some bots ever go for the bomb
+  if (!p.nukePlan) {
+    const r = Math.random();
+    p.nukePlan = r < (AGGRESSIVE.includes(p.faction) ? 0.35 : 0.12) ? 'weapon' : r < 0.6 ? 'civil' : 'none';
+  }
+  const foes = Object.values(g.players).filter((x) => x.id !== pid && !g.allies(x.id, pid));
+  p.saving = null; // what the bot is putting money aside for; the army waits while it saves
+
+  // intelligence agency and counter-intelligence
+  if (!p.intelJob && g.t > 6 * 60) {
+    const wantAgency = g.fastIntel(p) ? 4 : 2, wantCounter = p.nukePlan === 'weapon' ? 2 : 1;
+    const kind = p.intel < wantAgency ? 'agency' : p.counter < wantCounter && n.level >= 1 ? 'counter' : null;
+    if (kind) {
+      const c = g.intelCost(p, kind);
+      if (afford(p, c, 300)) g.cmd(pid, { type: 'intelUpgrade', kind });
+      else if (p.intel < 2) p.saving = c;
+    }
+  }
+
+  // the programme
+  if (p.nukePlan !== 'none' && g.t > 18 * 60) {
+    const step = n.level === 0 ? g.NUKE.research.cost : n.level === 1 ? g.NUKE.enrich.cost : null;
+    if (step && !n.job && !afford(p, step, 300)) p.saving = step;
+    if (n.level === 0 && !n.job && afford(p, g.NUKE.research.cost, 300)) g.cmd(pid, { type: 'nukeResearch' });
+    if (n.level === 1 && !n.job && afford(p, g.NUKE.enrich.cost, 300)) {
+      const mine = g.terr.filter((t) => t.owner === pid && t.type !== 'capital');
+      const caps = foes.map((x) => g.terr[x.capital]);
+      const far = mine.sort((a, b) => Math.min(...caps.map((c) => dist(b, c))) - Math.min(...caps.map((c) => dist(a, c))))[0];
+      const site = p.nukePlan === 'weapon' && far && Math.random() < 0.6 ? far : g.terr[p.capital];
+      g.cmd(pid, { type: 'nukeEnrich', terr: site.id });
+    }
+  }
+  if (p.nukePlan === 'weapon' && n.level >= 2 && n.fac !== null) {
+    if (!n.weaponizing && !n.done && g.t >= g.NUKE.weapon.minT && p.res.money > 2500)
+      g.cmd(pid, { type: 'nukeWeapon', pace: Math.random() < (AGGRESSIVE.includes(p.faction) ? 0.6 : 0.3) ? 'slow' : 'normal' });
+    if (n.decoys.length < 1 && p.res.money > 3500 && Math.random() < 0.05) {
+      const t = g.terr.find((x) => x.owner === pid && x.id !== n.fac && x.type !== 'capital');
+      if (t) g.cmd(pid, { type: 'nukeDecoy', terr: t.id });
+    }
+    if (n.weaponizing && n.progress >= 1 && !n.testing) g.cmd(pid, { type: 'nukeTest' });
+    if ((n.weaponizing && n.progress < 1) || (!n.weaponizing && !n.done && g.t >= g.NUKE.weapon.minT - 5 * 60)) p.saving = { money: 2500, oil: 1000, steel: 1200 };
+  }
+
+  // operations: watch suspicious rivals, find facilities, sabotage the ones close to a bomb
+  if (p.intel >= 1 && g.t >= p.opReady && p.res.money > 900 && Math.random() < 0.5 && foes.length) {
+    const armed = foes.filter((x) => seesStage(g, pid, x.id, ['weapon', 'test'], 'medium'));
+    const x = armed[Math.floor(Math.random() * armed.length)];
+    if (x) {
+      const located = g.reports.some((r) => r.kind === 'locate' && r.target === x.id && g.reportVisible(r, pid) && r.data.site !== null);
+      const cyber = p.res.money > 1700 && p.res.steel > 350 && (located || Math.random() < 0.5);
+      g.cmd(pid, { type: 'op', op: cyber ? 'cyber' : located ? 'spy' : 'locate', target: x.id });
+    } else {
+      const sus = foes.filter((f) => (g.publicNuke[f.id] && g.publicNuke[f.id].stage !== 'none') || (p.rel[f.id] || 0) < 0);
+      const pool = sus.length && Math.random() < 0.7 ? sus : foes;
+      g.cmd(pid, { type: 'op', op: 'spy', target: pool[Math.floor(Math.random() * pool.length)].id });
+    }
+  }
+
+  // fund partners' programmes once in a while
+  for (const x of g.pacts) {
+    if (x.partner !== pid || !['active', 'exposed'].includes(x.status) || x.paid >= g.NUKE.weaponValue * 0.25) continue;
+    if (p.res.money > 3000 && Math.random() < 0.1) g.cmd(pid, { type: 'pactFund', id: x.id, res: { money: 500, steel: 200 } });
+  }
+
+  // trade surplus for whatever the plan is short of
+  if (p.saving && Math.random() < 0.2) {
+    const short = RES.find((r) => p.res[r] < (p.saving[r] || 0));
+    const rich = RES.filter((r) => r !== short).sort((a, b) => (p.res[b] - (p.saving[b] || 0)) - (p.res[a] - (p.saving[a] || 0)))[0];
+    const spare = short && p.res[rich] - (p.saving[rich] || 0) - 1000;
+    if (spare > 300) g.cmd(pid, { type: 'market', give: rich, get: short, amount: Math.floor(Math.min(spare, ((p.saving[short] - p.res[short]) / g.marketRate(p)) + 50)) });
+  }
+
+  botCouncil(g, p, foes);
+}
+
+function botCouncil(g, p, foes) {
+  const pid = p.id, s = g.council.session;
+  if (!s) return;
+  const myReports = (target) => g.reports.filter((r) => r.target === target && g.reportVisible(r, pid) && r.kind === 'spy' && ['weapon', 'test'].includes(r.data.stage));
+  if (s.phase === 'propose' && s.chair === pid) {
+    const armed = foes.filter((x) => myReports(x.id).some((r) => r.conf !== 'low'));
+    const mine = g.measures.find((m) => m.target === pid || g.allies(m.target, pid));
+    const teams = {};
+    for (const x of Object.values(g.players)) teams[x.team] = (teams[x.team] || 0) + x.vp;
+    const vps = Object.values(teams).sort((a, b) => b - a);
+    const leader = foes.find((x) => teams[x.team] === vps[0] && vps[0] > 1.3 * (vps[1] || 0) + 50);
+    if (armed.length) {
+      const x = armed[0], r = myReports(x.id).sort((a, b) => (b.conf === 'high') - (a.conf === 'high'))[0];
+      g.cmd(pid, { type: 'councilPropose', res: Math.random() < 0.6 ? 'sanctions' : 'authorize', target: x.id, report: r.id });
+    } else if (mine) g.cmd(pid, { type: 'councilPropose', res: 'lift', target: mine.target });
+    else if (leader) g.cmd(pid, { type: 'councilPropose', res: 'sanctions', target: leader.id });
+    else if (g.t > g.NUKE.weapon.minT && Math.random() < 0.6 && foes.some((x) => g.publicNuke[x.id] && g.publicNuke[x.id].stage === 'enrich')) {
+      // enriched states past minute 40 are the usual suspects
+      const sus = foes.filter((x) => g.publicNuke[x.id] && g.publicNuke[x.id].stage === 'enrich');
+      g.cmd(pid, { type: 'councilPropose', res: 'sanctions', target: sus[Math.floor(Math.random() * sus.length)].id });
+    }
+    else {
+      const sus = foes.filter((x) => (p.rel[x.id] || 0) < 10);
+      if (sus.length) g.cmd(pid, { type: 'councilPropose', res: 'inspect', target: sus[Math.floor(Math.random() * sus.length)].id });
+    }
+    return;
+  }
+  if (s.phase !== 'vote') return;
+  const target = s.target;
+  for (const r of myReports(target)) if (!s.evidence.some((e) => e.report === r.id)) { g.cmd(pid, { type: 'councilEvidence', report: r.id }); break; }
+  if (s.votes[pid]) return;
+  const friend = target === pid || g.allies(target, pid) || g.pacts.some((x) => x.owner === target && x.partner === pid && ['active', 'exposed'].includes(x.status));
+  const rel = p.rel[target] || 0;
+  let choice;
+  if (s.res === 'lift') choice = friend || rel >= REL.pact ? 'yes' : rel < 0 ? 'no' : 'abstain';
+  else if (friend) choice = 'no';
+  else {
+    const proof = s.evidence.some((e) => { const r = g.reports.find((y) => y.id === e.report); return r && r.kind === 'spy' && ['weapon', 'test'].includes(r.data.stage) && r.conf !== 'low'; });
+    choice = proof || rel < 15 || (g.players[target].aggressor || 0) > g.t ? 'yes' : rel >= REL.pact ? 'no' : 'abstain';
+  }
+  g.cmd(pid, { type: 'councilVote', choice });
 }
 
 // build bases on held command centres (then farms) and keep them garrisoned
@@ -93,15 +219,30 @@ function botBases(g, p, hungry) {
   }
 }
 
+// a testing site is everyone's problem; a located facility of an armed rival is worth a strike
+function nukeTargetValue(g, p, t) {
+  const o = g.players[t.owner];
+  if (o.nuke.testing && o.nuke.fac === t.id) return 8;
+  const located = g.reports.some((r) => r.kind === 'locate' && r.target === o.id && r.data.site === t.id && g.reportVisible(r, p.id) && r.conf !== 'low');
+  return located && seesStage(g, p.id, o.id, ['weapon', 'test'], 'medium') ? 4 : 1;
+}
+
 function botTurn(g, pid) {
   const p = g.players[pid];
   if (!p || g.winner) return;
   const cap = g.terr[p.capital];
   botPolitics(g, p);
   botTech(g, p);
+  if (g.nuclear) botNuclear(g, p);
   const pop = g.population(p), milQ = g.military(p, true);
   const foodNet = g.income(p).food - g.upkeep(p);
   const hungry = foodNet < 0 && p.res.food < 1500;
+  // save up for the nuclear plan, unless under attack or it has dragged on too long
+  let saving = !!p.saving && !RES.every((r) => p.res[r] >= (p.saving[r] ? p.saving[r] + 400 : 0));
+  if (!saving) p.saveSince = null;
+  else if (p.saveSince == null) p.saveSince = g.t;
+  if (saving && g.t - p.saveSince > 23 * 60) p.saveSince = g.t; // a short spending break every 20 minutes
+  if (saving && (g.t - p.saveSince > 20 * 60 || g.movements.some((m) => m.to === cap.id && m.owner !== pid && m.mission === 'attack'))) saving = false;
 
   // trade surplus on the open market
   const sorted = RES.slice().sort((a, b) => p.res[a] - p.res[b]);
@@ -123,11 +264,11 @@ function botTurn(g, pid) {
     if (milQ > pop * 0.75 || hungry) b = 'housing';
     else if (p.buildings.economy < 4) b = 'economy';
     else b = ['economy', 'factory', 'defense', 'housing', 'radar'][Math.floor(Math.random() * 5)];
-    if (g.canPay(p, g.upgradeCost(p, b)) && Math.random() < 0.6) g.cmd(pid, { type: 'upgrade', building: b });
+    if (!saving && g.canPay(p, g.upgradeCost(p, b)) && Math.random() < 0.6) g.cmd(pid, { type: 'upgrade', building: b });
   }
 
   // keep the factory busy while there is manpower and food
-  if (p.queue.filter((q) => q.at === p.capital).length < 2 && !hungry && milQ < pop * 0.8) {
+  if (p.queue.filter((q) => q.at === p.capital).length < 2 && !hungry && !saving && milQ < pop * 0.8) {
     const r = Math.random();
     let u = r < 0.45 ? 'inf' : r < 0.75 ? 'tank' : r < 0.9 ? 'jet' : 'sam';
     if (r < 0.45 && Math.random() < 0.25) u = p.techs.logistics ? 'sf' : 'heli';
@@ -142,7 +283,7 @@ function botTurn(g, pid) {
     if (n > 0) g.cmd(pid, { type: 'train', unit: u, count: n });
   }
 
-  botBases(g, p, hungry);
+  if (!saving) botBases(g, p, hungry);
 
   // attack the most valuable reachable target we can beat
   if (g.movements.some((m) => m.owner === pid && m.mission === 'attack')) return;
@@ -152,12 +293,13 @@ function botTurn(g, pid) {
     .filter((t) => willAttack(g, p, t.owner))
     .map((t) => {
       const D = estDefense(g, t, p);
-      let value = t.type === 'strategic' ? 3 : t.type === 'capital' ? 1.2 : 1;
+      let value = t.type === 'strategic' ? 3 : t.type === 'un' ? 2.5 : t.type === 'capital' ? 1.2 : 1;
+      if (g.nuclear && t.owner) value *= nukeTargetValue(g, p, t);
       if (hungry && t.type === 'farm') value *= 2.5;
       if (t.owner && (p.rel[t.owner] || 0) < REL.hostile) value *= 1.5;
       return { t, D, score: (value * 1000) / (dist(cap, t) + 100) / (1 + D / 500) };
     })
-    .filter((c) => myPower > c.D * 1.4)
+    .filter((c) => myPower > c.D * (g.nuclear && c.t.owner && nukeTargetValue(g, p, c.t) > 1 ? 1.1 : 1.4))
     .sort((a, b) => b.score - a.score);
   if (!candidates.length) return;
   const target = candidates[0];

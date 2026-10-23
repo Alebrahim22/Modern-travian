@@ -60,7 +60,7 @@
 <section id="lobby" class="screen hidden">
   <div class="card lobby-card">
     <div class="title-row"><h2>غرفة الانتظار</h2><button class="icon-btn" data-theme-toggle title="الوضع الفاتح / الداكن">🌓</button></div>
-    <div class="goal-box small-goal">🏆 <b>الهدف:</b> احتل مراكز القيادة ⭐ واجمع نقاط النصر. أول فريق يوصل للهدف يفوز. أضف بوتات لو تبي تجرّب لحالك.</div>
+    <div id="lobbyRules" class="goal-box small-goal"></div>
     <div class="code-box">كود الغرفة: <b id="roomCode"></b> <button id="copyLink" class="small">نسخ رابط الدعوة</button></div>
     <div id="lobbyPlayers"></div>
     <div class="row">
@@ -69,6 +69,22 @@
       <select id="myTeam"><option value="">بدون (الكل ضد الكل)</option><option value="A">فريق A</option><option value="B">فريق B</option><option value="C">فريق C</option><option value="D">فريق D</option></select>
     </div>
     <div id="hostControls" class="host-box">
+      <div class="row">
+        <label>نمط اللعب:</label>
+        <select id="modeSel"><option value="domination">⭐ السيطرة على المراكز</option><option value="nuclear">☢️ سباق النووي</option></select>
+      </div>
+      <div class="row">
+        <label>مراكز ⭐:</label>
+        <select id="starsSel"><option value="0">تلقائي حسب عدد اللاعبين</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select>
+      </div>
+      <div class="row nuke-only">
+        <label>المقاعد الدائمة:</label>
+        <select id="seatsSel"><option value="-1">تلقائي (مقعد لكل 3 لاعبين)</option><option value="0">بدون</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
+      </div>
+      <div class="row nuke-only">
+        <label>التجربة النووية:</label>
+        <select id="nukeWinSel"><option value="win">💥 فوز فوري</option><option value="vp">+150 نقطة نصر</option></select>
+      </div>
       <div class="row">
         <label>الخريطة:</label>
         <select id="mapSel"><option value="world">🌍 خريطة العالم الحقيقية</option><option value="random">🎲 خريطة عشوائية</option></select>
@@ -108,6 +124,7 @@
         <div id="eventBar" class="hidden" onclick="setTab('world')"></div>
       </div>
       <div id="modeBanner" class="hidden"></div>
+      <div id="council" class="hidden"></div>
       <div id="vpBar"></div>
       <div id="zoom"><button onclick="zoomBtn(1.4)" aria-label="تكبير">+</button><button onclick="zoomBtn(1/1.4)" aria-label="تصغير">−</button><button onclick="zoomBtn(-1)" aria-label="عاصمتي">🏠</button><button onclick="zoomBtn(0)" aria-label="الخريطة كاملة">⟲</button></div>
     </div>
@@ -120,6 +137,7 @@
         <button data-tab="moves">🚀 تحركات</button>
         <button data-tab="tech">🔬 أبحاث</button>
         <button data-tab="world">🌍 العالم<span id="worldDot" class="dot hidden"></span></button>
+        <button data-tab="intel" class="nuke-tab hidden">🕵️ استخبارات<span id="intelDot" class="dot hidden"></span></button>
         <button data-tab="trade">⚖️ تجارة</button>
         <button data-tab="dip">🤝 دبلوماسية<span id="dipDot" class="dot hidden"></span></button>
         <button data-tab="log">📜 أحداث<span id="logDot" class="dot hidden"></span></button>
@@ -133,6 +151,7 @@
     <button data-nav="train"><i>🏭</i>الجيش</button>
     <button data-nav="tech"><i>🔬</i>الأبحاث</button>
     <button data-nav="dip"><i>🤝</i>الدبلوماسية<span id="dipDot2" class="dot hidden"></span></button>
+    <button data-nav="intel" class="nuke-tab hidden"><i>🕵️</i>الاستخبارات<span id="intelDot2" class="dot hidden"></span></button>
     <button data-nav="world"><i>🌍</i>العالم<span id="worldDot2" class="dot hidden"></span></button>
   </nav>
   <div id="toast"></div>
