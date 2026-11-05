@@ -36,8 +36,8 @@ const FACTIONS_RAW = {
               scoutAlways: true, seeIncoming: true, unitAtt: { jet: 1.15 }, market: 0.7, pop: 0.95 },
   egypt:    { name: 'مصر', flag: '🇪🇬', pros: ['أكبر جيش: عدد سكان +15٪', 'المشاة أرخص 15٪', 'تكلفة الإعاشة -15٪'], cons: ['تقنية أقل: هجوم الدبابات والمقاتلات -15٪'],
               pop: 1.15, unitCost: { inf: 0.85 }, upkeep: 0.85, unitAtt: { tank: 0.85, jet: 0.85 } },
-  saudi:    { name: 'السعودية', flag: '🇸🇦', pros: ['ثروة نفطية: النفط +30٪', 'علاقات سياسية: كسب العلاقات أسرع 50٪', 'أسعار سوق جيدة'], cons: ['تعتمد على الاستيراد: التصنيع أبطأ 20٪'],
-              prod: { oil: 1.3 }, diplomacy: 1.5, market: 0.68, buildTime: 1.2 },
+  saudi:    { name: 'السعودية', flag: '🇸🇦', pros: ['ثروة نفطية: النفط +20٪', 'علاقات سياسية: كسب العلاقات أسرع 50٪', 'أسعار سوق جيدة'], cons: ['تعتمد على الاستيراد: التصنيع أبطأ 25٪'],
+              prod: { oil: 1.2 }, diplomacy: 1.5, market: 0.62, buildTime: 1.25 },
 };
 const FACTIONS = {};
 for (const [k, f] of Object.entries(FACTIONS_RAW)) {
