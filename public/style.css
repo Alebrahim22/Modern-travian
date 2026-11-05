@@ -253,9 +253,13 @@ table.rank tr.me td { font-weight: 700; }
 }
 
 /* nuclear race mode */
-#council { position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); width: 400px; max-width: calc(100% - 16px); max-height: 70%; overflow-y: auto;
-  background: var(--panel); border: 2px solid #4fc3f7; border-radius: 14px; padding: 10px 12px; box-shadow: var(--shadow); z-index: 4; font-size: 13px; }
-#council.min { padding: 0; border-width: 1px; width: auto; }
+#council { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; z-index: 14; padding: 12px; font-size: 14px; }
+#council.hidden { display: none; }
+.hold-card { width: 440px; max-width: 100%; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; border: 2px solid #4fc3f7; }
+.hold-card .vote-row button { flex: 1; min-height: 48px; font-size: 16px; }
+.hold-chat { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
+#holdMsgs { max-height: 130px; overflow-y: auto; margin-bottom: 6px; }
+.hold-note { margin-top: 8px; text-align: center; }
 #council select, #council .block { width: 100%; margin: 4px 0; }
 .council-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .council-head b { flex: 1; }
@@ -270,9 +274,17 @@ table.rank tr.me td { font-weight: 700; }
 .box.nuke { border-color: var(--bad); }
 .box .sep { border-top: 1px dashed var(--line); margin: 8px 0; }
 .mv.report small { color: var(--muted); }
+#news { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 420px; max-width: calc(100% - 16px); background: var(--panel); border: 2px solid var(--warn-text); border-radius: 12px;
+  padding: 10px 14px; font-weight: 600; font-size: 14px; box-shadow: var(--shadow); z-index: 6; cursor: pointer; animation: newsIn .25s ease-out; }
+@keyframes newsIn { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+#goalCard .more { font-style: normal; margin-inline-start: 6px; color: var(--muted); display: none; }
+@media (max-width: 899px) {
+  #goalCard .more { display: inline; }
+  #goalCard:not(.open) .g2 { display: none; }
+  #goalCard:not(.open) .bar { margin-bottom: 0; }
+  #news { top: 6px; }
+}
 #goalCard .nuke-line { margin-top: 3px; border-top: 1px solid var(--line); padding-top: 3px; }
 .tag.bad { background: var(--bad); color: #fff; }
 @media (max-width: 899px) {
-  #council { position: fixed; bottom: calc(64px + env(safe-area-inset-bottom)); left: 8px; right: 8px; width: auto; max-width: none; transform: none; max-height: 55vh; z-index: 7; }
-  #council.min { left: auto; right: 8px; }
 }

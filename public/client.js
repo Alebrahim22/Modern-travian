@@ -9,7 +9,7 @@ let ws, myId, meta = { FACTIONS: {} }, lobby = null, S = null, stateAt = 0;
 const ui = {
   faction: localStorage.getItem('faction') || 'china',
   tab: 'base', selected: null, mode: null, sendFrom: null, sendTo: null,
-  inputs: {}, chat: [], seenLog: 0, seenChat: 0, sheet: false,
+  inputs: {}, chat: [], newsQ: [], seenLog: 0, seenChat: 0, sheet: false,
 };
 const isMobile = () => matchMedia('(max-width: 899px)').matches;
 
@@ -309,6 +309,32 @@ function nextTip() {
 const crisisPending = () => S.crisis && (S.crisis.a === myId || S.crisis.b === myId ? !S.crisis.party[myId] : !S.crisis.mine);
 const votePending = () => S.vote && S.vote.team !== me().team && !S.vote.mine;
 
+// news: only what matters pops up on screen, one at a time; everything else waits quietly under 🔔
+const NEWS_MARK = /^(🏛️|☢️|🚨|🗡️|⚠️|🏆|🏅|💥|🚀|🔍|✋|⛔|🤝|🚪|📢)/;
+const isBigNews = (l) => l.kind === 'bad' || l.kind === 'warn' || NEWS_MARK.test(l.text);
+function renderNews(lastLog, g) {
+  if (ui.newsT == null) { ui.newsT = lastLog; ui.summaryN = Math.floor(S.t / 600); return; }
+  for (const l of S.log) if (l.t > ui.newsT && isBigNews(l)) ui.newsQ.push(l.text);
+  ui.newsT = Math.max(ui.newsT, lastLog);
+  const n = Math.floor(S.t / 600);
+  if (n > ui.summaryN && !S.winner) {
+    ui.summaryN = n;
+    const teams = {};
+    for (const p of S.players) teams[p.team] = (teams[p.team] || 0) + p.vp;
+    const rank = 1 + Object.entries(teams).filter(([k, v]) => k !== me().team && v > g.mine).length;
+    const sites = S.terr.filter((t) => t.owner === myId).length;
+    ui.newsQ.push(`📊 ملخص: ترتيبك ${rank} من ${Object.keys(teams).length} · نقاطك ⭐${fmt(g.mine)} · تملك ${sites} موقع · ${g.lead.vp < 1 ? 'ما أحد عنده نقاط' : g.iLead ? 'أنت المتصدر 👑' : 'المتصدر ⭐' + fmt(g.lead.vp)}`);
+  }
+  if (ui.newsQ.length > 3) ui.newsQ.splice(0, ui.newsQ.length - 3);
+  const el = $('#news');
+  if (ui.newsBusy || !ui.newsQ.length || S.hold) return;
+  ui.newsBusy = true;
+  el.textContent = ui.newsQ.shift();
+  el.classList.remove('hidden');
+  setTimeout(() => { el.classList.add('hidden'); setTimeout(() => { ui.newsBusy = false; }, 300); }, 4000);
+}
+window.toggleGoal = () => { if (isMobile()) { ui.goalOpen = !ui.goalOpen; renderGame(); } else setTab('world'); };
+
 function renderGame() {
   const r = S.me.res, inc = { ...S.me.income, food: S.me.income.food - S.me.upkeep };
   const mob = isMobile(), f = mob ? fmtK : fmt;
@@ -324,7 +350,8 @@ function renderGame() {
     : `لا تملك أي مركز ⭐ — احتل واحداً لتبدأ جمع النقاط`;
   const prot = S.protection > 0 ? ` · 🛡️ حماية ${fmtTime(S.protection)}` : '';
   const nukeLine = nuclear() ? `<div class="g2 nuke-line">☢️ ${meta.STAGES[S.nukeMe.stage]}${S.nukeMe.weaponizing ? ' ' + Math.round(S.nukeMe.progress * 100) + '٪' : ''} · 🏛️ ${S.council.session ? '<b>جلسة المجلس الآن</b>' : (S.council.next > S.remaining ? 'لا جلسات أخرى' : 'الجلسة القادمة ' + fmtTime(S.council.next))}</div>` : '';
-  $('#goalCard').innerHTML = `<div class="g1"><span>🎯 فريقك ⭐ ${fmt(g.mine)} / ${fmt(S.vpTarget)}</span><span class="tm">⏱️ ${fmtTime(S.remaining)}</span></div>
+  $('#goalCard').classList.toggle('open', !!ui.goalOpen);
+  $('#goalCard').innerHTML = `<div class="g1"><span>🎯 فريقك ⭐ ${fmt(g.mine)} / ${fmt(S.vpTarget)}</span><span class="tm">⏱️ ${fmtTime(S.remaining)}<i class="more">${ui.goalOpen ? '▴' : '▾'}</i></span></div>
     <div class="bar gbar">${g.iLead ? '' : `<i class="lead" style="width:${lpct}%"></i>`}<i style="width:${pct}%;position:relative"></i></div>
     <div class="g2">${leadName}${prot}<br>${etaTxt}</div>${nukeLine}`;
 
@@ -380,6 +407,7 @@ function renderGame() {
     return `<span class="vpchip">${ps.map((p) => `<span class="swatch" style="background:${p.color}"></span>${esc(p.name)}`).join(' + ')} ⭐${fmt(vp)}</span>`;
   }).join('');
   const lastLog = S.log.length ? S.log[S.log.length - 1].t : 0;
+  renderNews(lastLog, g);
   const logNew = !(ui.tab === 'log' && ui.sheetVisible()) && lastLog > ui.seenLog;
   $('#logDot').classList.toggle('hidden', !logNew);
   if (ui.tab === 'log' && ui.sheetVisible()) ui.seenLog = lastLog;
@@ -884,7 +912,7 @@ function nuclearWorldHtml() {
 // ---------------- council card ----------------
 function councilHtml() {
   const s = S.council.session, R = meta.RESOLUTIONS, n = nukeN();
-  const head = `<div class="council-head"><b>🏛️ مجلس الأمن · الجلسة ${s.n}</b><span class="tm">⏱️ ${fmtTime(s.remaining)}</span><button class="icon-btn" data-council-min="1" aria-label="تصغير">▾</button></div>`;
+  const head = `<div class="council-head"><b>🏛️ مجلس الأمن · الجلسة ${s.n}</b><span class="tm">⏱️ ${fmtTime(s.remaining)}</span></div>`;
   let h = head;
   if (s.phase === 'propose') {
     if (s.chair !== myId) return h + `<div class="stats">الرئيس ${pname(s.chair)} يختار القرار...</div>`;
@@ -913,22 +941,44 @@ function councilHtml() {
     h += `<button class="danger block" data-council="insider">🗡️ افضح شريكك بتقرير من الداخل (تكسب +${meta.NUKE.vp.expose} وتنجو من العقوبات)</button>`;
   return h;
 }
+// the council freezes the game for everyone: one shared window with the motion, the votes and a quick chat
+function voteHtml() {
+  const v = S.vote;
+  let h = `<div class="council-head"><b>🏛️ مجلس الأمن: تصويت على عقوبات</b><span class="tm">⏱️ ${fmtTime(v.remaining)}</span></div>
+    <div class="council-res">عقوبات على ${esc(v.names)}؟</div><div class="stats">إنتاج -25٪ وإغلاق السوق 10 دقائق إذا وافقت الأغلبية ولم يستخدم أحد الأعضاء الدائمين الفيتو.</div>
+    <div class="tally"><span class="good">مع ${v.yes}</span> · <span class="neg">ضد ${v.no}</span></div>`;
+  if (v.team === me().team) h += '<div class="stats neg">أنت المستهدف. أقنعهم في الدردشة يصوتون ضد، أو اطلب فيتو من حليف.</div>';
+  else if (v.mine) h += `<div class="stats">صوتك: <b>${{ yes: '✅ مع', no: '❌ ضد', veto: '✋ فيتو' }[v.mine]}</b></div>`;
+  else h += `<div class="row vote-row"><button class="primary" data-vote="yes">✅ مع</button><button class="danger" data-vote="no">❌ ضد</button>${S.me.canVeto ? '<button data-vote="veto">✋ فيتو</button>' : ''}</div>`;
+  return h;
+}
 function renderCouncil() {
-  const el = $('#council'), s = nuclear() && S.council.session;
-  if (!s || S.winner) { el.classList.add('hidden'); return; }
-  el.classList.remove('hidden');
-  const min = ui.councilMin === s.id + s.phase;
-  el.classList.toggle('min', min);
-  const html = min ? `<div class="council-pill" data-council-min="0">🏛️ جلسة مجلس الأمن ${councilAction() ? '· <b>دورك!</b>' : ''} ⏱️ ${fmtTime(s.remaining)} ▴</div>` : councilHtml();
+  const el = $('#council'), on = S.hold && !S.winner;
+  el.classList.toggle('hidden', !on);
+  if (!on) { el.dataset.html = ''; return; }
+  const key = S.hold === 'council' ? 'c' + S.council.session.id + S.council.session.phase : 'v' + S.vote.id;
+  if (el.dataset.key !== key) {
+    el.dataset.key = key; el.dataset.html = '';
+    if (navigator.vibrate) try { navigator.vibrate([200, 100, 200]); } catch {}
+  }
+  if (!el.firstChild) {
+    el.innerHTML = `<div class="card hold-card"><div id="holdMain"></div><div class="hold-chat"><div id="holdMsgs"></div>
+      <form class="chat-form" onsubmit="sendChat(event)"><input placeholder="ناقشهم هنا..." autocomplete="off" maxlength="200"><button>إرسال</button></form></div>
+      <div class="stats sub hold-note">⏸️ اللعبة متوقفة للجميع حتى ينتهي التصويت. تنتهي الجلسة بدري إذا صوّت الكل.</div></div>`;
+  }
+  const msgs = ui.chat.slice(-8).map((c) => `<div class="log-item"><b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('') || '<div class="stats sub">ما فيه رسائل. اكتب رأيك قبل التصويت.</div>';
+  const mb = $('#holdMsgs');
+  if (mb.dataset.html !== msgs) { mb.dataset.html = msgs; mb.innerHTML = msgs; mb.scrollTop = mb.scrollHeight; }
+  const main = $('#holdMain'), html = S.hold === 'council' ? councilHtml() : voteHtml();
   const active = document.activeElement;
-  if (active && el.contains(active) && active.tagName === 'SELECT') {
-    const tm = el.querySelector('.tm'); if (tm) tm.textContent = '⏱️ ' + fmtTime(s.remaining);
+  if (active && main.contains(active) && active.tagName === 'SELECT') {
+    const tm = main.querySelector('.tm'); if (tm) tm.textContent = '⏱️ ' + fmtTime(S.hold === 'council' ? S.council.session.remaining : S.vote.remaining);
     return;
   }
   if (html === el.dataset.html) return;
   el.dataset.html = html;
-  el.innerHTML = html;
-  for (const sel of el.querySelectorAll('[data-ckey]')) if (ui.inputs[sel.dataset.ckey] !== undefined && [...sel.options].some((o) => o.value === ui.inputs[sel.dataset.ckey])) sel.value = ui.inputs[sel.dataset.ckey];
+  main.innerHTML = html;
+  for (const sel of main.querySelectorAll('[data-ckey]')) if (ui.inputs[sel.dataset.ckey] !== undefined && [...sel.options].some((o) => o.value === ui.inputs[sel.dataset.ckey])) sel.value = ui.inputs[sel.dataset.ckey];
 }
 $('#council').addEventListener('change', (e) => {
   const k = e.target.dataset.ckey; if (!k) return;
@@ -937,9 +987,10 @@ $('#council').addEventListener('change', (e) => {
   $('#council').dataset.html = ''; renderCouncil();
 });
 $('#council').addEventListener('click', (e) => {
-  const el = e.target.closest('[data-council],[data-council-vote],[data-council-min]'); if (!el) return;
-  const d = el.dataset, s = S.council.session; if (!s) return;
-  if (d.councilMin !== undefined) { ui.councilMin = d.councilMin === '1' ? s.id + s.phase : null; $('#council').dataset.html = ''; renderCouncil(); return; }
+  const el = e.target.closest('[data-council],[data-council-vote],[data-vote]'); if (!el) return;
+  const d = el.dataset;
+  if (d.vote) { if (S.vote) cmd({ type: 'vote', id: S.vote.id, choice: d.vote }); return; }
+  const s = S.council && S.council.session; if (!s) return;
   if (d.councilVote) cmd({ type: 'councilVote', choice: d.councilVote });
   else if (d.council === 'propose') {
     const rep = $('#council [data-ckey="c-report"]');
@@ -1046,7 +1097,7 @@ window.doSend = (mission) => {
 };
 window.sendChat = (e) => {
   e.preventDefault();
-  const inp = $('#chatInput'); const text = inp.value.trim(); if (!text) return;
+  const inp = e.target.querySelector('input:not([type=checkbox])'); const text = inp.value.trim(); if (!text) return;
   send({ type: 'chat', text, teamOnly: !!($('#teamOnly') && $('#teamOnly').checked) });
   inp.value = '';
 };
@@ -1217,6 +1268,7 @@ function guideHtml() {
     <div class="ex">مثال: أزمة كشمير بين 🇮🇳 الهند و🇵🇰 باكستان. 🇸🇦 السعودية تقدر تتوسط وتكسب الطرفين و+40 نقطة لو نجح السلام. أو تدعم باكستان عسكرياً فتقوى باكستان وتتحسن العلاقة معها، بس الهند بتزعل.</div>`);
   h += sec('🏛️ مجلس الأمن والعقوبات (نمط السيطرة)', `<ul>
     <li>من الدقيقة 35 وكل 25 دقيقة، إذا فيه 3 فرق أو أكثر، يصوّت المجلس على معاقبة <b>الفريق المتصدر</b>.</li>
+    <li>وقت التصويت <b>اللعبة توقف للجميع</b> وتطلع نافذة فيها التصويت ودردشة للنقاش، مدتها دقيقة وتنتهي بدري إذا صوّت الكل.</li>
     <li>العقوبات: إنتاج -25٪ وإغلاق السوق 10 دقائق.</li>
     <li>تنجح لو صوّتت الأغلبية "مع"، إلا إذا استخدم عضو دائم <b>الفيتو</b>: ${(meta.PERMANENT || []).map(flagOf).join(' ')}.</li>
     <li>لو أنت المتصدر: اطلب من حليف أو دولة صديقة عضو دائم يستخدم الفيتو لك.</li></ul>`);
@@ -1233,7 +1285,7 @@ function guideHtml() {
     <li><b>دقة التقرير</b> = مستوى جهازك + الأقمار الصناعية − مكافحة التجسس عندهم ± سرعة تسليحهم (والمنشأة في العاصمة أسهل بالكشف). 🟢 عالية دائماً صحيحة، 🟡 متوسطة 85٪، 🔴 ضعيفة 60٪ وممكن تكون غلط. وعمليتك ممكن تنكشف.</li>
     <li>الحلفاء يتشاركون التقارير تلقائياً.</li></ul>
     <b>🏛️ مجلس الأمن:</b><ul>
-    <li>جلسة كل 15 دقيقة لعب، تستمر دقيقة حقيقية واللعب ما يوقف. الرئاسة بالدور بين كل اللاعبين.</li>
+    <li>جلسة كل 15 دقيقة لعب. <b>اللعبة توقف للجميع</b> وتطلع نافذة التصويت والنقاش لكل اللاعبين: 40 ثانية للرئيس يطرح قراره، ثم دقيقة للتصويت، وتنتهي بدري إذا صوّت الكل. الرئاسة بالدور بين كل اللاعبين.</li>
     <li>الرئيس يختار قراراً ودولة: ${Object.values(Rz).map((r) => `${r.name} (${r.desc})`).join(' · ')}.</li>
     <li>الكل يقدّم تقارير كأدلة (الكل يشوف درجة ثقتها) ويصوّت. يمر لو "مع" أكثر من "ضد".</li>
     <li>🌐 <b>مراكز النفوذ الخمسة</b> (مقرات أممية حقيقية): كل مركز ${meta.UN_VP} نقاط/د، ومن يملك أكثر مراكز ياخذ <b>مقعداً دائماً</b> صوته بصوتين. عدد المقاعد يحدده صاحب الغرفة.</li></ul>

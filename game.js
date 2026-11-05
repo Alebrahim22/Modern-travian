@@ -140,8 +140,8 @@ const HARSH_SITES = ['الغوار', 'غرب سيبيريا', 'ليبيا', 'ك�
 
 const TERR = {
   capital:   { name: 'عاصمة',        icon: '🏛️', pop: 150, prod: { money: 300, oil: 120, steel: 150, food: 220 } },
-  city:      { name: 'مدينة',        icon: '🏙️', pop: 60,  prod: { money: 160, oil: 0, steel: 0, food: 0 },   garrison: { inf: 15, tank: 2 } },
-  oil:       { name: 'حقل نفط',      icon: '🛢️', pop: 15,  prod: { money: 0, oil: 130, steel: 0, food: 0 },   garrison: { inf: 10, tank: 3 } },
+  city:      { name: 'مدينة',        icon: '🏙️', pop: 60,  prod: { money: 200, oil: 0, steel: 0, food: 0 },   garrison: { inf: 15, tank: 2 } },
+  oil:       { name: 'حقل نفط',      icon: '🛢️', pop: 15,  prod: { money: 40, oil: 130, steel: 0, food: 0 },   garrison: { inf: 10, tank: 3 } },
   mine:      { name: 'منجم',         icon: '⛏️', pop: 15,  prod: { money: 0, oil: 0, steel: 130, food: 0 },   garrison: { inf: 10, tank: 3 } },
   farm:      { name: 'أراضٍ زراعية', icon: '🌾', pop: 25,  prod: { money: 0, oil: 0, steel: 0, food: 180 },   garrison: { inf: 8, tank: 2 } },
   strategic: { name: 'مركز قيادة استراتيجي', icon: '⭐', pop: 30, prod: { money: 100, oil: 40, steel: 40, food: 40 }, garrison: { inf: 30, tank: 8, sam: 6 } },
@@ -166,6 +166,8 @@ const COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1'
 const REL = { hostile: -30, trade: 25, pact: 50, ally: 75 };
 
 const emptyUnits = () => Object.fromEntries(Object.keys(UNITS).map((k) => [k, 0]));
+const VOTE_SECONDS = 60;
+const HOLD_CMDS = ['vote', 'councilPropose', 'councilEvidence', 'councilVote'];
 const emptyRes = () => ({ money: 0, oil: 0, steel: 0, food: 0 });
 const sumUnits = (u) => Object.values(u).reduce((a, b) => a + b, 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -261,7 +263,7 @@ class Game {
     place('strategic', nStrat, 0.05, 0.45, 110);
     if (this.nuclear) place('un', 5, 0.15, 0.6, 100);
     const each = Math.max(2, Math.round(9 / Math.max(n, 2)));
-    for (const type of ['city', 'oil', 'mine', 'farm']) place(type, 2 + n * each, 0.2, 1, 62);
+    for (const type of ['city', 'oil', 'mine', 'farm']) place(type, Math.round((2 + n * each) * (type === 'city' ? 1.5 : 1)), 0.2, 1, 62);
     for (const t of terr) if (['oil', 'mine'].includes(t.type) && this.rand() < 0.4) t.harsh = true; // deserts, tundra, mountains
     terr.forEach((t, i) => {
       t.id = i;
@@ -318,8 +320,8 @@ class Game {
     for (const [f, c] of Object.entries(CAPITALS)) if (!used[f]) pool.push({ ...project(c.at[0], c.at[1]), type: 'city', name: c.name, strong: true });
     for (const s of SITES) pool.push({ ...project(s.at[0], s.at[1]), type: s.type, name: s.name, harsh: HARSH_SITES.includes(s.name) });
     const valid = pool.filter((p) => fits(p, 42));
-    const perCap = Math.min(9, Math.floor(valid.length / caps.length));
-    const types = ['city', 'oil', 'mine', 'farm'];
+    const perCap = Math.min(10, Math.floor(valid.length / caps.length));
+    const types = ['city', 'oil', 'city', 'mine', 'farm']; // money is the scarcest resource, so cities come twice
     for (let round = 0; round < perCap; round++) {
       const want = types[round % types.length]; // keep each capital's share mixed
       for (const cap of round % 2 ? caps.slice().reverse() : caps) {
@@ -491,6 +493,7 @@ class Game {
     if (this.winner) return 'انتهت المباراة';
     const p = this.players[pid];
     if (!p) return 'لاعب غير معروف';
+    if (this.hold && !HOLD_CMDS.includes(c.type)) return '🏛️ اللعبة متوقفة لجلسة مجلس الأمن. صوّت أولاً';
     const fn = {
       train: this.cmdTrain, upgrade: this.cmdUpgrade, send: this.send, market: this.cmdMarket,
       offer: this.cmdOffer, cancelOffer: this.cmdCancelOffer, acceptOffer: this.cmdAcceptOffer,
@@ -830,7 +833,7 @@ class Game {
     if (sorted.length < 3 || sorted[0][1] < 1) return;
     const team = sorted[0][0];
     const names = this.teamMembers(team).map((p) => p.name).join(' و');
-    this.vote = { id: this.nextId++, team, names, until: this.t + 3 * 60, votes: {} };
+    this.vote = { id: this.nextId++, team, names, left: VOTE_SECONDS, votes: {} };
     for (const p of this.teamMembers(team)) this.vote.votes[p.id] = 'no';
     this.addLog(null, `🏛️ مجلس الأمن يصوّت على فرض عقوبات على المتصدر ${names} (إنتاج -25٪ وإغلاق السوق لمدة 10 دقائق). صوّت من تبويب العالم`, 'warn');
   }
@@ -954,8 +957,27 @@ class Game {
   }
 
   // ---------- simulation ----------
+  // a council session freezes the whole world: everyone votes together, on a real-time clock
+  get hold() {
+    if (this.nuclear) return this.council.session ? 'council' : null;
+    return this.vote ? 'vote' : null;
+  }
+  tickHold(realDt) {
+    if (this.nuclear) {
+      const s = this.council.session;
+      s.left -= realDt;
+      const done = s.phase === 'vote' && Object.values(this.players).every((p) => s.votes[p.id]);
+      if (s.left <= 0 || done) this.endSession();
+    } else {
+      const v = this.vote;
+      v.left -= realDt;
+      const done = Object.values(this.players).every((p) => p.team === v.team || v.votes[p.id]);
+      if (v.left <= 0 || done) this.endVote();
+    }
+  }
   tick(realDt) {
     if (this.winner) return;
+    if (this.hold) return this.tickHold(realDt);
     const dt = realDt * this.speed;
     this.t += dt;
     this.tickEvents();
@@ -1031,7 +1053,6 @@ class Game {
       this.startCrisis();
       this.nextCrisisT = this.t + (16 + this.rand() * 6) * 60;
     }
-    if (this.vote && this.t >= this.vote.until) this.endVote();
     if (!this.vote && !this.nuclear && this.t >= this.nextVoteT) {
       this.startVote();
       this.nextVoteT = this.t + 25 * 60;
@@ -1290,7 +1311,8 @@ class Game {
         stance: cr.stance, mine: cr.stance[pid] || null,
       } : null,
       nextCrisis: rs(this.nextCrisisT - this.t), protection: rs(Math.max(0, PROTECTION - this.t)),
-      vote: this.vote ? { id: this.vote.id, team: this.vote.team, names: this.vote.names, remaining: rs(this.vote.until - this.t), mine: this.vote.votes[pid] || null,
+      hold: this.hold,
+      vote: this.vote ? { id: this.vote.id, team: this.vote.team, names: this.vote.names, remaining: Math.max(0, this.vote.left), mine: this.vote.votes[pid] || null,
         yes: Object.values(this.vote.votes).filter((x) => x === 'yes').length, no: Object.values(this.vote.votes).filter((x) => x === 'no').length } : null,
       sanctions: this.sanctions ? { team: this.sanctions.team, names: this.sanctions.names, remaining: rs(this.sanctions.until - this.t) } : null,
       projects: Object.values(this.players).filter((p) => p.sw && !p.sw.used).map((p) => ({ id: p.id, name: p.name, ready: p.sw.ready, progress: 1 - p.sw.remaining / p.sw.total, remaining: rs(Math.max(0, p.sw.remaining)) })),

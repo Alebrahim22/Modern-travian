@@ -47,7 +47,7 @@ const RESOLUTIONS = {
   inspect:   { name: '🔍 تفتيش دولي', desc: 'يعلن للكل إذا وصل للبحث أو التخصيب (لا يكشف التسليح)' },
   lift:      { name: '✅ رفع عقوبة', desc: 'يلغي كل العقوبات والحظر والتفويض الساري عليه' },
 };
-const COUNCIL = { every: 15 * 60, first: 15 * 60, length: 60, propose: 25, vote: 35 }; // length/propose/vote in real seconds
+const COUNCIL = { every: 15 * 60, first: 15 * 60, propose: 40, vote: 60 }; // propose/vote in real seconds; the world is frozen meanwhile
 const UN_HQ = [
   { name: 'نيويورك', at: [-74, 40.7] }, { name: 'جنيف', at: [6.1, 46.2] }, { name: 'فيينا', at: [16.4, 48.2] },
   { name: 'نيروبي', at: [36.8, -1.3] }, { name: 'بانكوك', at: [100.5, 13.75] }, { name: 'أديس أبابا', at: [38.7, 9] },
@@ -375,7 +375,7 @@ const NuclearMixin = {
     const target = this.players[c.target];
     if (!target || !this.sessionTargets(p.id, c.res).includes(target)) return c.res === 'lift' ? 'هالدولة ما عليها شي يُرفع' : 'لا يمكنك استهداف نفسك أو حلفائك';
     s.res = c.res; s.target = target.id; s.phase = 'vote';
-    s.until = this.t + COUNCIL.vote * this.speed;
+    s.left = COUNCIL.vote;
     s.votes[p.id] = 'yes';
     this.nukeLog(`🏛️ ${p.name} يطرح على مجلس الأمن: ${RESOLUTIONS[c.res].name} على ${target.name}. صوّتوا الآن!`);
     if (c.report) this.cmdCouncilEvidence(p, { report: c.report });
@@ -424,7 +424,7 @@ const NuclearMixin = {
     const c = this.council;
     const chair = this.order[c.n % this.order.length];
     c.n++;
-    c.session = { id: this.nextId++, n: c.n, chair, phase: 'propose', until: this.t + COUNCIL.propose * this.speed, res: null, target: null, evidence: [], votes: {} };
+    c.session = { id: this.nextId++, n: c.n, chair, phase: 'propose', left: COUNCIL.propose, res: null, target: null, evidence: [], votes: {} };
     this.nukeLog(`🏛️ جلسة مجلس الأمن رقم ${c.n} بدأت برئاسة ${this.players[chair].name}`);
   },
   tally(s) {
@@ -514,7 +514,6 @@ const NuclearMixin = {
       this.addLog(this.order[c.n % this.order.length], '🏛️ أنت رئيس جلسة مجلس الأمن القادمة بعد دقيقتين. جهّز قرارك وأدلتك', 'warn');
     }
     if (!c.session && this.t >= c.next && c.next < this.endT) { this.startSession(); c.next += COUNCIL.every; }
-    if (c.session && this.t >= c.session.until) this.endSession();
     for (const m of [...this.measures]) if (this.t >= m.until) {
       this.measures = this.measures.filter((x) => x !== m);
       this.addLog(null, `🏛️ انتهى ${RESOLUTIONS[m.kind].name} على ${this.players[m.target].name}`);
@@ -596,7 +595,7 @@ const NuclearMixin = {
       council: {
         n: this.council.n, next: rs(this.council.next - this.t), chairNext: this.order[this.council.n % this.order.length], last: this.council.last,
         session: s ? {
-          id: s.id, n: s.n, chair: s.chair, phase: s.phase, res: s.res, target: s.target, remaining: rs(s.until - this.t),
+          id: s.id, n: s.n, chair: s.chair, phase: s.phase, res: s.res, target: s.target, remaining: Math.max(0, s.left),
           evidence: s.evidence.map((e) => reportOut(this.reports.find((r) => r.id === e.report))),
           yes: tally.yes, no: tally.no, voters: Object.keys(s.votes).length, mine: s.votes[pid] || null,
           targets: s.phase === 'propose' && s.chair === pid ? Object.fromEntries(Object.keys(RESOLUTIONS).map((k) => [k, this.sessionTargets(pid, k).map((x) => x.id)])) : null,

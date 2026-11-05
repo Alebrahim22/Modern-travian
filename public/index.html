@@ -118,12 +118,13 @@
     <div id="mapWrap">
       <canvas id="map"></canvas>
       <div id="hud">
-        <div id="goalCard" onclick="setTab('world')"></div>
+        <div id="goalCard" onclick="toggleGoal()"></div>
         <div id="alertPill" class="hidden" onclick="setTab('moves')"></div>
         <div id="tipCard" class="hidden"></div>
         <div id="eventBar" class="hidden" onclick="setTab('world')"></div>
       </div>
       <div id="modeBanner" class="hidden"></div>
+      <div id="news" class="hidden" onclick="setTab('log')"></div>
       <div id="council" class="hidden"></div>
       <div id="vpBar"></div>
       <div id="zoom"><button onclick="zoomBtn(1.4)" aria-label="تكبير">+</button><button onclick="zoomBtn(1/1.4)" aria-label="تصغير">−</button><button onclick="zoomBtn(-1)" aria-label="عاصمتي">🏠</button><button onclick="zoomBtn(0)" aria-label="الخريطة كاملة">⟲</button></div>
